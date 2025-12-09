@@ -77,11 +77,17 @@ export default function MessageItem({
           )}
         </div>
         
-        {!isUser && message.audioUrl && (
+        {!isUser && (message.streamingAudioUrl || message.completeAudioUrl || message.audioUrl) && (
           <div className="mt-3 flex items-center">
             <AudioPlayer 
-              audioUrl={message.audioUrl} 
-              autoPlay={isLastMessage && !isStreaming}
+              audioUrl={
+                // If currently streaming, use streamingAudioUrl (don't switch to completeAudioUrl mid-stream)
+                // Otherwise, use completeAudioUrl for replay, or fallback to audioUrl
+                message.isStreamingPlayback && message.streamingAudioUrl
+                  ? message.streamingAudioUrl
+                  : (message.completeAudioUrl || message.audioUrl || '')
+              } 
+              autoPlay={isLastMessage && message.isStreamingPlayback === true}
             />
           </div>
         )}

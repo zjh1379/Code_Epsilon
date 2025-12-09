@@ -23,6 +23,8 @@ class ChatConfig(BaseModel):
     top_k: int = 5  # Top k sampling
     top_p: float = 1.0  # Top p sampling
     temperature: float = 1.0  # Temperature for sampling
+    streaming_mode: int = 2  # Streaming mode: 0=non-streaming, 1=return_fragment, 2=true streaming (recommended), 3=fixed length chunk
+    media_type: str = "ogg"  # Audio format: "wav" (for compatibility), "ogg" (recommended for streaming), "aac", "raw", "fmp4"
     aux_ref_audio_paths: List[str] = []  # Auxiliary reference audio paths
 
 

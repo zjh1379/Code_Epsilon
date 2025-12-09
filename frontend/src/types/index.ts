@@ -5,7 +5,10 @@
 export interface Message {
   role: 'user' | 'assistant'
   content: string
-  audioUrl?: string
+  audioUrl?: string  // Complete audio URL for replay (legacy)
+  streamingAudioUrl?: string  // Streaming playback URL (e.g., MediaSource)
+  completeAudioUrl?: string  // Complete audio URL for replay
+  isStreamingPlayback?: boolean  // Whether currently streaming playback
   isLoading?: boolean
   error?: string
 }
@@ -21,6 +24,8 @@ export interface ChatConfig {
   top_k: number
   top_p: number
   temperature: number
+  streaming_mode: number  // 0=non-streaming, 1=return_fragment, 2=true streaming (recommended), 3=fixed length chunk
+  media_type: 'wav' | 'ogg' | 'aac' | 'raw' | 'fmp4'  // Audio format: wav (compatibility), ogg/webm (recommended for streaming), aac/fmp4, raw
   aux_ref_audio_paths?: string[]
 }
 
@@ -31,10 +36,13 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
-  type: 'text' | 'complete' | 'audio' | 'error'
+  type: 'text' | 'complete' | 'audio_start' | 'audio_chunk' | 'audio_complete' | 'audio' | 'error'
   content?: string
   text?: string
-  data?: string  // Base64 audio data
+  data?: string  // Base64 audio data (for non-streaming audio)
+  index?: number  // Chunk index (for streaming audio)
+  size?: number  // Chunk size in bytes (for streaming audio)
+  total_chunks?: number  // Total chunks received (for audio_complete)
   error?: string
 }
 
@@ -49,6 +57,8 @@ export interface ConfigResponse {
   top_k: number
   top_p: number
   temperature: number
+  streaming_mode: number
+  media_type: string
   gpt_weights_path?: string
   sovits_weights_path?: string
 }
@@ -64,6 +74,8 @@ export interface ConfigUpdateRequest {
   top_k?: number
   top_p?: number
   temperature?: number
+  streaming_mode?: number
+  media_type?: string
   gpt_weights_path?: string
   sovits_weights_path?: string
 }

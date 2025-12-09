@@ -17,6 +17,8 @@ class ConfigResponse(BaseModel):
     top_k: int
     top_p: float
     temperature: float
+    streaming_mode: int = 2  # Streaming mode: 0=non-streaming, 1=return_fragment, 2=true streaming (recommended), 3=fixed length chunk
+    media_type: str = "ogg"  # Audio format: "wav", "ogg" (recommended for streaming), "aac", "raw", "fmp4"
     gpt_weights_path: Optional[str] = None
     sovits_weights_path: Optional[str] = None
 
@@ -33,6 +35,8 @@ class ConfigUpdateRequest(BaseModel):
     top_k: Optional[int] = None
     top_p: Optional[float] = None
     temperature: Optional[float] = None
+    streaming_mode: Optional[int] = None  # Streaming mode: 0=non-streaming, 1=return_fragment, 2=true streaming (recommended), 3=fixed length chunk
+    media_type: Optional[str] = None  # Audio format: "wav", "ogg", "aac", "raw", "fmp4"
     gpt_weights_path: Optional[str] = None
     sovits_weights_path: Optional[str] = None
 

@@ -24,6 +24,8 @@ DEFAULT_CONFIG = {
     "top_k": 15,
     "top_p": 1.0,
     "temperature": 1.0,
+    "streaming_mode": 2,
+    "media_type": "ogg",
     "gpt_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\GPT_weights_v2Pro\isekai60-e15.ckpt",
     "sovits_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\isekai60_e8_s248.pth"
 }
@@ -41,6 +43,8 @@ _config_cache = {
     "top_k": 5,
     "top_p": 1.0,
     "temperature": 1.0,
+    "streaming_mode": 2,
+    "media_type": "ogg",
     "gpt_weights_path": None,
     "sovits_weights_path": None
 }
@@ -77,6 +81,8 @@ async def get_config():
         top_k=_config_cache.get("top_k", 5),
         top_p=_config_cache.get("top_p", 1.0),
         temperature=_config_cache.get("temperature", 1.0),
+        streaming_mode=_config_cache.get("streaming_mode", 2),
+        media_type=_config_cache.get("media_type", "ogg"),
         gpt_weights_path=_config_cache.get("gpt_weights_path"),
         sovits_weights_path=_config_cache.get("sovits_weights_path")
     )
@@ -127,6 +133,16 @@ async def update_config(request: ConfigUpdateRequest):
     if request.temperature is not None:
         _config_cache["temperature"] = request.temperature
     
+    if request.streaming_mode is not None:
+        if request.streaming_mode not in [0, 1, 2, 3]:
+            raise HTTPException(status_code=400, detail="streaming_mode必须是0/1/2/3")
+        _config_cache["streaming_mode"] = request.streaming_mode
+    
+    if request.media_type is not None:
+        if request.media_type not in ["wav", "raw", "ogg", "aac", "fmp4"]:
+            raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac, fmp4")
+        _config_cache["media_type"] = request.media_type
+    
     # Update model weights if provided
     if request.gpt_weights_path is not None and request.gpt_weights_path.strip():
         # Clean the path
@@ -159,6 +175,8 @@ async def update_config(request: ConfigUpdateRequest):
         top_k=_config_cache["top_k"],
         top_p=_config_cache["top_p"],
         temperature=_config_cache["temperature"],
+        streaming_mode=_config_cache["streaming_mode"],
+        media_type=_config_cache["media_type"],
         gpt_weights_path=_config_cache["gpt_weights_path"],
         sovits_weights_path=_config_cache["sovits_weights_path"]
     )

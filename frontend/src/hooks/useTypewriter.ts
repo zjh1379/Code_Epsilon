@@ -85,7 +85,9 @@ export function useTypewriter({
       setIsTyping(false)
       previousTextRef.current = text
     }
-  }, [text, enabled, speed, displayedText, onComplete])
+  // Key dependencies: text / enabled / speed / onComplete
+  // Avoid adding displayedText to prevent extra rerenders causing depth issues
+  }, [text, enabled, speed, onComplete])
 
   // Cleanup on unmount
   useEffect(() => {

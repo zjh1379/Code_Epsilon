@@ -23,12 +23,13 @@ export default function ConfigPanel({
   const [promptText, setPromptText] = useState(config.prompt_text)
   const [promptLang, setPromptLang] = useState(config.prompt_lang || 'zh')
   const [textLang, setTextLang] = useState(config.text_lang)
-  const [textSplitMethod, setTextSplitMethod] = useState(config.text_split_method || 'cut5')
+  const [textSplitMethod, setTextSplitMethod] = useState(config.text_split_method || 'cut3')
   const [speedFactor, setSpeedFactor] = useState(config.speed_factor || 1.0)
-  const [fragmentInterval, setFragmentInterval] = useState(config.fragment_interval || 0.3)
+  const [fragmentInterval, setFragmentInterval] = useState(config.fragment_interval || 0.2)
   const [topK, setTopK] = useState(config.top_k || 5)
   const [topP, setTopP] = useState(config.top_p || 1.0)
   const [temperature, setTemperature] = useState(config.temperature || 1.0)
+  const [streamingMode, setStreamingMode] = useState(config.streaming_mode ?? 2)
   const [gptWeightsPath, setGptWeightsPath] = useState('')
   const [sovitsWeightsPath, setSovitsWeightsPath] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -54,12 +55,13 @@ export default function ConfigPanel({
         setPromptText(backendConfig.prompt_text || '')
         setPromptLang((backendConfig.prompt_lang || 'zh') as ChatConfig['prompt_lang'])
         setTextLang(backendConfig.text_lang as ChatConfig['text_lang'])
-        setTextSplitMethod(backendConfig.text_split_method || 'cut5')
+        setTextSplitMethod(backendConfig.text_split_method || 'cut3')
         setSpeedFactor(backendConfig.speed_factor || 1.0)
-        setFragmentInterval(backendConfig.fragment_interval || 0.3)
+        setFragmentInterval(backendConfig.fragment_interval || 0.2)
         setTopK(backendConfig.top_k || 5)
         setTopP(backendConfig.top_p || 1.0)
         setTemperature(backendConfig.temperature || 1.0)
+        setStreamingMode(backendConfig.streaming_mode ?? 2)
         setGptWeightsPath(backendConfig.gpt_weights_path || '')
         setSovitsWeightsPath(backendConfig.sovits_weights_path || '')
         onConfigChange({
@@ -67,12 +69,14 @@ export default function ConfigPanel({
           prompt_text: backendConfig.prompt_text || '',
           prompt_lang: (backendConfig.prompt_lang || 'zh') as ChatConfig['prompt_lang'],
           text_lang: backendConfig.text_lang as ChatConfig['text_lang'],
-          text_split_method: backendConfig.text_split_method || 'cut5',
+          text_split_method: backendConfig.text_split_method || 'cut3',
           speed_factor: backendConfig.speed_factor || 1.0,
-          fragment_interval: backendConfig.fragment_interval || 0.3,
+          fragment_interval: backendConfig.fragment_interval || 0.2,
           top_k: backendConfig.top_k || 5,
           top_p: backendConfig.top_p || 1.0,
           temperature: backendConfig.temperature || 1.0,
+        streaming_mode: backendConfig.streaming_mode ?? 2,
+        media_type: 'fmp4' as ChatConfig['media_type'],
         })
       })
       .catch((err) => {
@@ -178,6 +182,8 @@ export default function ConfigPanel({
         top_k: topK,
         top_p: topP,
         temperature: temperature,
+        streaming_mode: streamingMode,
+        media_type: 'fmp4',
         gpt_weights_path: gptWeightsPath.trim() || undefined,
         sovits_weights_path: sovitsWeightsPath.trim() || undefined,
       })
@@ -187,12 +193,14 @@ export default function ConfigPanel({
         prompt_text: updated.prompt_text,
         prompt_lang: (updated.prompt_lang || 'zh') as ChatConfig['prompt_lang'],
         text_lang: updated.text_lang as ChatConfig['text_lang'],
-        text_split_method: updated.text_split_method || 'cut5',
+        text_split_method: updated.text_split_method || 'cut3',
         speed_factor: updated.speed_factor || 1.0,
-        fragment_interval: updated.fragment_interval || 0.3,
+        fragment_interval: updated.fragment_interval || 0.2,
         top_k: updated.top_k || 5,
         top_p: updated.top_p || 1.0,
         temperature: updated.temperature || 1.0,
+          streaming_mode: updated.streaming_mode ?? 2,
+          media_type: 'fmp4' as ChatConfig['media_type'],
       })
 
       onClose()
@@ -424,6 +432,26 @@ export default function ConfigPanel({
           {/* Advanced Options */}
           {showAdvanced && (
             <div className={`space-y-4 border-t-2 ${theme === 'dark' ? 'border-emerald-500/30' : 'border-gray-200'} pt-4`}>
+              {/* Streaming Mode */}
+              <div>
+                <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                  流式模式
+                </label>
+                <select
+                  value={streamingMode}
+                  onChange={(e) => setStreamingMode(parseInt(e.target.value))}
+                  className={`w-full border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all`}
+                >
+                  <option value={0} className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>0 - 非流式</option>
+                  <option value={1} className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>1 - 片段返回模式</option>
+                  <option value={2} className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>2 - 真流式模式</option>
+                  <option value={3} className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>3 - 固定长度chunk流式模式</option>
+                </select>
+                <p className={`text-xs ${themeClasses.text.secondary} mt-1`}>
+                  模式2和3为真流式，延迟低；模式1需要等待较长时间才开始返回；模式0为非流式
+                </p>
+              </div>
+
               {/* Text Split Method */}
               <div>
                 <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>

@@ -17,12 +17,14 @@ const defaultConfig: ChatConfig = {
   prompt_text: '',
   prompt_lang: 'zh',
   text_lang: 'zh',
-  text_split_method: 'cut5',
+  text_split_method: 'cut3',
   speed_factor: 1.0,
-  fragment_interval: 0.3,
+  fragment_interval: 0.2,
   top_k: 5,
   top_p: 1.0,
   temperature: 1.0,
+  streaming_mode: 2,
+  media_type: 'fmp4',
 }
 
 export default function ChatInterface() {

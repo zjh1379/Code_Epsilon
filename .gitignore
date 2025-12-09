@@ -50,3 +50,11 @@ tmp/
 uploads/
 backend/uploads/
 
+# Test files
+test_*.html
+test_*.ogg
+test_*.wav
+
+# Cursor IDE
+.cursor/
+
