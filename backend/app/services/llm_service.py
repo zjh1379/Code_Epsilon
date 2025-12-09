@@ -51,17 +51,7 @@ class LLMService:
         current_message: str,
         system_prompt: Optional[str] = None
     ) -> List[dict]:
-        """
-        Build messages list for OpenAI API from history
-        
-        Args:
-            history: Conversation history
-            current_message: Current user message
-            system_prompt: Optional system prompt (character profile)
-            
-        Returns:
-            List of message dictionaries
-        """
+        """Build messages list for OpenAI API from history"""
         messages = []
         
         # Add system prompt if provided
@@ -99,7 +89,7 @@ class LLMService:
         Args:
             message: User message
             history: Conversation history
-            system_prompt: Optional system prompt (character profile)
+            system_prompt: System prompt from current character
             
         Yields:
             Text chunks as they are generated
@@ -108,8 +98,12 @@ class LLMService:
             self._initialize_llm()
         
         try:
-            # Build messages list for OpenAI API
-            messages = self._build_messages_from_history(history or [], message, system_prompt)
+            # Build messages list for OpenAI API with system prompt
+            messages = self._build_messages_from_history(
+                history or [], 
+                message,
+                system_prompt=system_prompt
+            )
             
             # Stream response from OpenAI
             async for chunk in self.llm.astream(messages):
@@ -139,7 +133,7 @@ class LLMService:
         Args:
             message: User message
             history: Conversation history
-            system_prompt: Optional system prompt (character profile)
+            system_prompt: System prompt from current character
             
         Returns:
             Complete response text
@@ -148,8 +142,12 @@ class LLMService:
             self._initialize_llm()
         
         try:
-            # Build messages list for OpenAI API
-            messages = self._build_messages_from_history(history or [], message, system_prompt)
+            # Build messages list for OpenAI API with system prompt
+            messages = self._build_messages_from_history(
+                history or [], 
+                message,
+                system_prompt=system_prompt
+            )
             
             # Get response from OpenAI
             response = await self.llm.ainvoke(messages)

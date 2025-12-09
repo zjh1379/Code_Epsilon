@@ -35,11 +35,11 @@ async def health_check():
 
 
 # Import API routers
-from app.api import chat, config, upload, character
+from app.api import chat, config, upload, characters
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(upload.router, prefix="/api", tags=["upload"])
-app.include_router(character.router, prefix="/api", tags=["character"])
+app.include_router(characters.router, prefix="/api", tags=["characters"])
 
 if __name__ == "__main__":
     import uvicorn

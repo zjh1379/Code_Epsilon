@@ -12,11 +12,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory configuration storage (for MVP)
-# In production, this should be stored in database or file
-# Default configuration for development
-_config_cache = {
-    "ref_audio_path": r"D:\NEU\epsilon\backend\uploads\audio\vocal_3year.wav.reformatted_vocals.flac_main_vocal.flac_10.flac_0007446080_0007595520_9500f4a7.wav",
+# Default configuration constants
+DEFAULT_CONFIG = {
+    "ref_audio_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\output_100isekai\参考音频\vocal_3year.wav.reformatted_vocals.flac_main_vocal.flac_10.flac_0007446080_0007595520.wav",
     "prompt_text": "こちらの楽曲は春巻ごはんさんに作っていただいた楽曲なんですけど",
     "prompt_lang": "ja",
     "text_lang": "zh",
@@ -30,6 +28,35 @@ _config_cache = {
     "sovits_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\isekai60_e8_s248.pth"
 }
 
+# In-memory configuration storage (for MVP)
+# In production, this should be stored in database or file
+_config_cache = {
+    "ref_audio_path": "",
+    "prompt_text": "",
+    "prompt_lang": "zh",
+    "text_lang": "zh",
+    "text_split_method": "cut5",
+    "speed_factor": 1.0,
+    "fragment_interval": 0.3,
+    "top_k": 5,
+    "top_p": 1.0,
+    "temperature": 1.0,
+    "gpt_weights_path": None,
+    "sovits_weights_path": None
+}
+
+
+def _initialize_config_with_defaults():
+    """Initialize config cache with default values if empty"""
+    global _config_cache
+    if not _config_cache.get("ref_audio_path"):
+        _config_cache.update(DEFAULT_CONFIG)
+        logger.info("Configuration initialized with default values")
+
+
+# Initialize with defaults on module load
+_initialize_config_with_defaults()
+
 
 @router.get("/config", response_model=ConfigResponse)
 async def get_config():
@@ -39,31 +66,6 @@ async def get_config():
     Returns:
         Current configuration settings
     """
-    # Initialize model weights on first access if they are set
-    if _config_cache.get("gpt_weights_path") and not _config_cache.get("_gpt_weights_initialized", False):
-        try:
-            cleaned_path = _config_cache["gpt_weights_path"].strip().strip('"').strip("'")
-            success = await tts_service.set_gpt_weights(cleaned_path)
-            if success:
-                _config_cache["_gpt_weights_initialized"] = True
-                logger.info(f"Default GPT weights initialized: {cleaned_path}")
-            else:
-                logger.warning(f"Failed to initialize default GPT weights: {cleaned_path}")
-        except Exception as e:
-            logger.warning(f"Failed to initialize default GPT weights: {e}")
-    
-    if _config_cache.get("sovits_weights_path") and not _config_cache.get("_sovits_weights_initialized", False):
-        try:
-            cleaned_path = _config_cache["sovits_weights_path"].strip().strip('"').strip("'")
-            success = await tts_service.set_sovits_weights(cleaned_path)
-            if success:
-                _config_cache["_sovits_weights_initialized"] = True
-                logger.info(f"Default SoVITS weights initialized: {cleaned_path}")
-            else:
-                logger.warning(f"Failed to initialize default SoVITS weights: {cleaned_path}")
-        except Exception as e:
-            logger.warning(f"Failed to initialize default SoVITS weights: {e}")
-    
     return ConfigResponse(
         ref_audio_path=_config_cache.get("ref_audio_path", ""),
         prompt_text=_config_cache.get("prompt_text", ""),
@@ -72,7 +74,7 @@ async def get_config():
         text_split_method=_config_cache.get("text_split_method", "cut5"),
         speed_factor=_config_cache.get("speed_factor", 1.0),
         fragment_interval=_config_cache.get("fragment_interval", 0.3),
-        top_k=_config_cache.get("top_k", 15),
+        top_k=_config_cache.get("top_k", 5),
         top_p=_config_cache.get("top_p", 1.0),
         temperature=_config_cache.get("temperature", 1.0),
         gpt_weights_path=_config_cache.get("gpt_weights_path"),

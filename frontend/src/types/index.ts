@@ -31,11 +31,10 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
-  type: 'text' | 'complete' | 'audio' | 'audio_start' | 'audio_chunk' | 'audio_complete' | 'error'
+  type: 'text' | 'complete' | 'audio' | 'error'
   content?: string
   text?: string
-  data?: string  // Base64 audio data (for non-streaming or chunk data)
-  index?: number  // Audio chunk index
+  data?: string  // Base64 audio data
   error?: string
 }
 
@@ -67,5 +66,24 @@ export interface ConfigUpdateRequest {
   temperature?: number
   gpt_weights_path?: string
   sovits_weights_path?: string
+}
+
+export interface Character {
+  id: string
+  name: string
+  system_prompt: string
+  is_default: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CharacterCreateRequest {
+  name: string
+  system_prompt: string
+}
+
+export interface CharacterUpdateRequest {
+  name?: string
+  system_prompt?: string
 }
 

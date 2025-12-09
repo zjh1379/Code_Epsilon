@@ -17,12 +17,26 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
   const [currentStreamingText, setCurrentStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])  // Store audio chunks for streaming
-  const currentAudioBlobRef = useRef<Blob | null>(null)  // Current combined audio blob
 
-  // Note: Config is now managed by ChatInterface and loaded from backend
-  // localStorage is no longer used for config persistence
-  // Config is persisted on the backend via /api/config endpoint
+  // Load config from localStorage on mount
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('chatConfig')
+    if (savedConfig) {
+      try {
+        const parsed = JSON.parse(savedConfig)
+        if (onConfigChange) {
+          onConfigChange(parsed)
+        }
+      } catch (e) {
+        console.error('Failed to load config from localStorage:', e)
+      }
+    }
+  }, [onConfigChange])
+
+  // Save config to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('chatConfig', JSON.stringify(config))
+  }, [config])
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -83,62 +97,8 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
               }
               setMessages((prev) => [...prev, assistantMessage])
               setCurrentStreamingText('')
-              // Reset audio chunks for new message
-              audioChunksRef.current = []
-              currentAudioBlobRef.current = null
-            } else if (response.type === 'audio_start') {
-              // Audio generation started
-              audioChunksRef.current = []
-              currentAudioBlobRef.current = null
-            } else if (response.type === 'audio_chunk' && response.data !== undefined) {
-              // Streaming audio chunk received
-              try {
-                // Decode base64 to binary
-                const binaryString = atob(response.data)
-                const bytes = new Uint8Array(binaryString.length)
-                for (let i = 0; i < binaryString.length; i++) {
-                  bytes[i] = binaryString.charCodeAt(i)
-                }
-                const chunkBlob = new Blob([bytes], { type: 'audio/wav' })
-                audioChunksRef.current.push(chunkBlob)
-                
-                // Combine all chunks into a single blob
-                const combinedBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' })
-                currentAudioBlobRef.current = combinedBlob
-                
-                // Create object URL for the combined audio
-                const audioUrl = URL.createObjectURL(combinedBlob)
-                
-                // Update message with current audio URL
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const lastMessage = updated[updated.length - 1]
-                  if (lastMessage && lastMessage.role === 'assistant') {
-                    // Revoke previous URL if exists
-                    if (lastMessage.audioUrl) {
-                      URL.revokeObjectURL(lastMessage.audioUrl)
-                    }
-                    lastMessage.audioUrl = audioUrl
-                    lastMessage.isLoading = true  // Still receiving chunks
-                  }
-                  return updated
-                })
-              } catch (err) {
-                console.error('Failed to process audio chunk:', err)
-              }
-            } else if (response.type === 'audio_complete') {
-              // Audio generation complete
-              setMessages((prev) => {
-                const updated = [...prev]
-                const lastMessage = updated[updated.length - 1]
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.isLoading = false
-                }
-                return updated
-              })
-              setIsLoading(false)
             } else if (response.type === 'audio' && response.data) {
-              // Non-streaming audio (fallback for compatibility)
+              // Audio received
               const audioUrl = base64ToAudioUrl(response.data)
               setMessages((prev) => {
                 const updated = [...prev]

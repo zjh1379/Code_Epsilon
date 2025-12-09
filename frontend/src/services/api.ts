@@ -7,8 +7,10 @@ import type {
   ChatResponse,
   ConfigResponse,
   ConfigUpdateRequest,
+  Character,
+  CharacterCreateRequest,
+  CharacterUpdateRequest,
 } from '../types'
-import type { CharacterProfile } from '../types/character'
 
 const API_BASE_URL = '/api'
 
@@ -133,20 +135,67 @@ export async function uploadAudioFile(file: File): Promise<{ file_path: string; 
 }
 
 /**
- * Get current character profile
+ * Character management API
  */
-export async function getCharacter(): Promise<CharacterProfile> {
-  const response = await apiClient.get<CharacterProfile>('/character')
+
+/**
+ * Get all characters
+ */
+export async function getAllCharacters(): Promise<Character[]> {
+  const response = await apiClient.get<Character[]>('/characters')
   return response.data
 }
 
 /**
- * Update character profile
+ * Get character by ID
+ */
+export async function getCharacter(id: string): Promise<Character> {
+  const response = await apiClient.get<Character>(`/characters/${id}`)
+  return response.data
+}
+
+/**
+ * Get current active character
+ */
+export async function getCurrentCharacter(): Promise<Character> {
+  const response = await apiClient.get<Character>('/characters/current')
+  return response.data
+}
+
+/**
+ * Create a new character
+ */
+export async function createCharacter(
+  request: CharacterCreateRequest
+): Promise<Character> {
+  const response = await apiClient.post<Character>('/characters', request)
+  return response.data
+}
+
+/**
+ * Update a character
  */
 export async function updateCharacter(
-  character: CharacterProfile
-): Promise<CharacterProfile> {
-  const response = await apiClient.post<CharacterProfile>('/character', character)
+  id: string,
+  request: CharacterUpdateRequest
+): Promise<Character> {
+  const response = await apiClient.put<Character>(`/characters/${id}`, request)
+  return response.data
+}
+
+/**
+ * Delete a character
+ */
+export async function deleteCharacter(id: string): Promise<{ success: boolean; message: string }> {
+  const response = await apiClient.delete<{ success: boolean; message: string }>(`/characters/${id}`)
+  return response.data
+}
+
+/**
+ * Activate a character
+ */
+export async function activateCharacter(id: string): Promise<Character> {
+  const response = await apiClient.post<Character>(`/characters/${id}/activate`)
   return response.data
 }
 

@@ -9,8 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.models.chat import ChatRequest, ChatResponse
 from app.services.llm_service import llm_service
 from app.services.tts_service import tts_service
-from app.api.character import get_character
-from app.utils.prompt_builder import build_system_prompt
+from app.services.character_service import character_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,9 @@ async def generate_chat_stream(request: ChatRequest):
     full_text = ""
     
     try:
-        # Get current character profile and build system prompt
-        character = await get_character()
-        system_prompt = build_system_prompt(character)
+        # Get current active character's system prompt
+        current_character = character_service.get_current_character()
+        system_prompt = current_character.system_prompt
         
         # Stream LLM response with system prompt
         async for chunk in llm_service.stream_chat(
@@ -51,19 +50,9 @@ async def generate_chat_stream(request: ChatRequest):
         }
         yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
         
-        # Generate audio using streaming TTS
+        # Generate audio using TTS
         try:
-            # Send audio start signal
-            audio_start_response = {
-                "type": "audio_start"
-            }
-            yield f"data: {json.dumps(audio_start_response, ensure_ascii=False)}\n\n"
-            
-            # Stream audio chunks
-            chunk_index = 0
-            has_audio = False
-            
-            async for audio_chunk in tts_service.stream_text_to_speech(
+            audio_data = await tts_service.text_to_speech(
                 text=full_text,
                 text_lang=request.config.text_lang,
                 ref_audio_path=request.config.ref_audio_path,
@@ -76,28 +65,16 @@ async def generate_chat_stream(request: ChatRequest):
                 top_p=request.config.top_p,
                 temperature=request.config.temperature,
                 aux_ref_audio_paths=request.config.aux_ref_audio_paths
-            ):
-                has_audio = True
-                # Encode chunk to base64
-                chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
-                
-                # Send audio chunk via SSE
-                audio_chunk_response = {
-                    "type": "audio_chunk",
-                    "data": chunk_base64,
-                    "index": chunk_index
-                }
-                yield f"data: {json.dumps(audio_chunk_response, ensure_ascii=False)}\n\n"
-                chunk_index += 1
+            )
             
-            if has_audio:
-                # Send audio complete signal
-                audio_complete_response = {
-                    "type": "audio_complete"
+            if audio_data:
+                audio_response = {
+                    "type": "audio",
+                    "data": audio_data
                 }
-                yield f"data: {json.dumps(audio_complete_response, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps(audio_response, ensure_ascii=False)}\n\n"
             else:
-                # No audio received
+                # TTS failed but text was generated successfully
                 error_response = {
                     "type": "error",
                     "error": "音频生成失败，但文本回复已生成。请检查GPT-SoVITS服务日志或配置参数。"
@@ -105,7 +82,7 @@ async def generate_chat_stream(request: ChatRequest):
                 yield f"data: {json.dumps(error_response, ensure_ascii=False)}\n\n"
         
         except Exception as e:
-            logger.error(f"TTS streaming error: {str(e)}")
+            logger.error(f"TTS error: {str(e)}")
             logger.error(f"TTS config: text_lang={request.config.text_lang}, prompt_lang={request.config.prompt_lang}, ref_audio_path={request.config.ref_audio_path}")
             # Don't fail the whole request if TTS fails
             error_response = {

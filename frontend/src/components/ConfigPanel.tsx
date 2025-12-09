@@ -3,7 +3,9 @@
  */
 import React, { useState, useEffect, useRef } from 'react'
 import { getConfig, updateConfig, uploadAudioFile } from '../services/api'
-import CharacterProfilePanel from './CharacterProfilePanel'
+import CharacterSwitcher from './CharacterSwitcher'
+import { useTheme } from '../contexts/ThemeContext'
+import { getThemeClasses } from '../utils/theme'
 import type { ChatConfig } from '../types'
 
 interface ConfigPanelProps {
@@ -38,39 +40,51 @@ export default function ConfigPanel({
   const [activeTab, setActiveTab] = useState<'tts' | 'character'>('tts')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
+  const { theme } = useTheme()
+  const themeClasses = getThemeClasses(theme)
 
   useEffect(() => {
-    // Load config from backend when panel opens
-    getConfig()
-      .then((backendConfig) => {
-        setRefAudioPath(backendConfig.ref_audio_path || config.ref_audio_path)
-        setPromptText(backendConfig.prompt_text || config.prompt_text || '')
-        setPromptLang(backendConfig.prompt_lang || config.prompt_lang || 'zh')
-        setTextLang((backendConfig.text_lang || config.text_lang) as ChatConfig['text_lang'])
-        setTextSplitMethod(backendConfig.text_split_method || config.text_split_method || 'cut5')
-        setSpeedFactor(backendConfig.speed_factor || config.speed_factor || 1.0)
-        setFragmentInterval(backendConfig.fragment_interval || config.fragment_interval || 0.3)
-        setTopK(backendConfig.top_k || config.top_k || 5)
-        setTopP(backendConfig.top_p || config.top_p || 1.0)
-        setTemperature(backendConfig.temperature || config.temperature || 1.0)
+    // Load config from backend only once when component mounts
+    let isMounted = true
+    
+    getConfig().then((backendConfig) => {
+        if (!isMounted) return
+        
+        setRefAudioPath(backendConfig.ref_audio_path)
+        setPromptText(backendConfig.prompt_text || '')
+        setPromptLang((backendConfig.prompt_lang || 'zh') as ChatConfig['prompt_lang'])
+        setTextLang(backendConfig.text_lang as ChatConfig['text_lang'])
+        setTextSplitMethod(backendConfig.text_split_method || 'cut5')
+        setSpeedFactor(backendConfig.speed_factor || 1.0)
+        setFragmentInterval(backendConfig.fragment_interval || 0.3)
+        setTopK(backendConfig.top_k || 5)
+        setTopP(backendConfig.top_p || 1.0)
+        setTemperature(backendConfig.temperature || 1.0)
         setGptWeightsPath(backendConfig.gpt_weights_path || '')
         setSovitsWeightsPath(backendConfig.sovits_weights_path || '')
+        onConfigChange({
+          ref_audio_path: backendConfig.ref_audio_path,
+          prompt_text: backendConfig.prompt_text || '',
+          prompt_lang: (backendConfig.prompt_lang || 'zh') as ChatConfig['prompt_lang'],
+          text_lang: backendConfig.text_lang as ChatConfig['text_lang'],
+          text_split_method: backendConfig.text_split_method || 'cut5',
+          speed_factor: backendConfig.speed_factor || 1.0,
+          fragment_interval: backendConfig.fragment_interval || 0.3,
+          top_k: backendConfig.top_k || 5,
+          top_p: backendConfig.top_p || 1.0,
+          temperature: backendConfig.temperature || 1.0,
+        })
       })
       .catch((err) => {
-        console.error('Failed to load config:', err)
-        // Use props config as fallback
-        setRefAudioPath(config.ref_audio_path)
-        setPromptText(config.prompt_text)
-        setPromptLang(config.prompt_lang)
-        setTextLang(config.text_lang)
-        setTextSplitMethod(config.text_split_method)
-        setSpeedFactor(config.speed_factor)
-        setFragmentInterval(config.fragment_interval)
-        setTopK(config.top_k)
-        setTopP(config.top_p)
-        setTemperature(config.temperature)
+        if (isMounted) {
+          console.error('Failed to load config:', err)
+        }
       })
-  }, []) // Only load once when component mounts
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Remove onConfigChange from dependencies to prevent infinite loop
 
   const handleFileSelect = async (file: File) => {
     // Validate file type
@@ -171,7 +185,7 @@ export default function ConfigPanel({
       onConfigChange({
         ref_audio_path: updated.ref_audio_path,
         prompt_text: updated.prompt_text,
-        prompt_lang: updated.prompt_lang || 'zh',
+        prompt_lang: (updated.prompt_lang || 'zh') as ChatConfig['prompt_lang'],
         text_lang: updated.text_lang as ChatConfig['text_lang'],
         text_split_method: updated.text_split_method || 'cut5',
         speed_factor: updated.speed_factor || 1.0,
@@ -189,43 +203,68 @@ export default function ConfigPanel({
     }
   }
 
+  const handleCharacterChange = async () => {
+    // Character changed - notify parent if needed
+    // This callback is called when character is switched in CharacterSwitcher
+    // No need to reload anything here, CharacterSwitcher handles its own state
+  }
+
+  const panelBorder = theme === 'dark' 
+    ? 'border-emerald-500/30 shadow-emerald-500/20'
+    : 'border-gray-300 shadow-gray-500/20'
+
+  const tabActiveClasses = theme === 'dark'
+    ? 'bg-gradient-to-r from-emerald-600/40 to-purple-600/40 text-emerald-300 border-b-2 border-emerald-400'
+    : 'bg-blue-50 text-blue-600 border-b-2 border-blue-500'
+
+  const tabInactiveClasses = theme === 'dark'
+    ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30'
+    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-gray-800 mb-4">配置</h2>
+    <div className={`fixed inset-0 ${theme === 'dark' ? 'bg-black/60' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center z-50 p-4`}>
+      <div className={`${themeClasses.bg.panel} backdrop-blur-md rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 ${panelBorder} shadow-2xl`} style={{ scrollbarGutter: 'stable' }}>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className={`text-xl font-bold ${themeClasses.titleGradient} bg-clip-text text-transparent`}>
+            配置
+          </h2>
+          <button
+            onClick={onClose}
+            className={`w-8 h-8 flex items-center justify-center ${themeClasses.text.secondary} hover:${themeClasses.text.primary} ${theme === 'dark' ? 'hover:bg-zinc-800/50' : 'hover:bg-gray-100'} rounded-lg transition-all duration-200`}
+            aria-label="Close"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-4">
+        <div className={`flex border-b-2 ${theme === 'dark' ? 'border-emerald-500/30' : 'border-gray-200'} mb-6 space-x-1`}>
           <button
             onClick={() => setActiveTab('tts')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'tts'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+              activeTab === 'tts' ? tabActiveClasses : tabInactiveClasses
             }`}
           >
             TTS配置
           </button>
           <button
             onClick={() => setActiveTab('character')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'character'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+              activeTab === 'character' ? tabActiveClasses : tabInactiveClasses
             }`}
           >
-            角色设定
+            切换助手
           </button>
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'character' ? (
-          <CharacterProfilePanel onClose={onClose} />
-        ) : (
-          <div className="space-y-4">
+        {/* TTS Config Tab */}
+        {activeTab === 'tts' && (
+        <div className="space-y-4">
           {/* Reference Audio File Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
               参考音频文件
             </label>
             
@@ -235,13 +274,21 @@ export default function ConfigPanel({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 ${
                 isDragging
-                  ? 'border-blue-500 bg-blue-50'
+                  ? theme === 'dark' 
+                    ? 'bg-gradient-to-br from-emerald-500/20 to-purple-500/20 shadow-lg shadow-emerald-500/20 shadow-purple-500/20'
+                    : 'bg-blue-50 shadow-lg shadow-blue-500/20'
                   : isUploading
-                  ? 'border-yellow-400 bg-yellow-50'
-                  : 'border-gray-300 hover:border-gray-400'
+                  ? 'border-yellow-400 bg-yellow-500/10'
+                  : theme === 'dark'
+                    ? 'border-emerald-500/30 bg-zinc-950/50 hover:border-emerald-400/50 hover:bg-zinc-950/70'
+                    : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-gray-100'
               }`}
+              style={isDragging && theme === 'dark' ? {
+                borderColor: 'rgb(34, 197, 94)',
+                boxShadow: '0 0 0 2px rgb(168, 85, 247), 0 0 20px rgba(34, 197, 94, 0.3), 0 0 20px rgba(168, 85, 247, 0.3)'
+              } : {}}
               onClick={handleBrowseClick}
             >
               <input
@@ -254,13 +301,13 @@ export default function ConfigPanel({
               <div className="space-y-2">
                 {isUploading ? (
                   <>
-                    <div className="mx-auto h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <div className="text-sm text-gray-600">正在上传...</div>
+                    <div className={`mx-auto h-12 w-12 border-4 ${theme === 'dark' ? 'border-emerald-400 border-purple-400' : 'border-blue-400'} border-t-transparent rounded-full animate-spin`} />
+                    <div className={`text-sm ${themeClasses.text.primary}`}>正在上传...</div>
                   </>
                 ) : (
                   <>
                     <svg
-                      className="mx-auto h-12 w-12 text-gray-400"
+                      className={`mx-auto h-12 w-12 ${theme === 'dark' ? 'text-emerald-400/60' : 'text-blue-400/60'}`}
                       stroke="currentColor"
                       fill="none"
                       viewBox="0 0 48 48"
@@ -272,10 +319,10 @@ export default function ConfigPanel({
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <div className="text-sm text-gray-600">
-                      <span className="text-blue-600 font-medium">点击选择文件</span> 或拖拽文件到此处
+                    <div className={`text-sm ${themeClasses.text.primary}`}>
+                      <span className={`${theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'} font-medium`}>点击选择文件</span> 或拖拽文件到此处
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className={`text-xs ${themeClasses.text.muted}`}>
                       支持格式: .wav, .mp3, .flac, .ogg, .m4a
                     </div>
                   </>
@@ -284,8 +331,11 @@ export default function ConfigPanel({
             </div>
             
             {uploadedFileName && (
-              <div className="mt-2 text-sm text-green-600">
-                已上传: {uploadedFileName}
+              <div className={`mt-2 text-sm ${theme === 'dark' ? 'text-emerald-400' : 'text-green-600'} flex items-center space-x-2`}>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <span>已上传: {uploadedFileName}</span>
               </div>
             )}
 
@@ -295,16 +345,16 @@ export default function ConfigPanel({
               value={refAudioPath}
               onChange={(e) => setRefAudioPath(e.target.value)}
               placeholder="或直接输入音频文件路径"
-              className="w-full mt-2 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full mt-3 border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 transition-all`}
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className={`text-xs ${themeClasses.text.secondary} mt-1`}>
               用于音色克隆的参考音频文件路径
             </p>
           </div>
 
           {/* Prompt Text */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
               参考音频文本内容
             </label>
             <textarea
@@ -312,16 +362,16 @@ export default function ConfigPanel({
               onChange={(e) => setPromptText(e.target.value)}
               placeholder="请输入参考音频对应的文本内容（用于TTS提示）"
               rows={4}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className={`w-full border-2 ${theme === 'dark' ? 'border-purple-500/30 focus:border-purple-500/50 focus:ring-purple-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 resize-none transition-all`}
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className={`text-xs ${themeClasses.text.secondary} mt-1`}>
               参考音频中说的文本内容，用于GPT-SoVITS的提示文本
             </p>
           </div>
 
           {/* Prompt Language */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
               参考音频语种
             </label>
             <select
@@ -329,19 +379,19 @@ export default function ConfigPanel({
               onChange={(e) =>
                 setPromptLang(e.target.value as ChatConfig['prompt_lang'])
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all`}
             >
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-              <option value="ja">日本語</option>
-              <option value="ko">한국어</option>
-              <option value="yue">粤语</option>
+              <option value="zh" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>中文</option>
+              <option value="en" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>English</option>
+              <option value="ja" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>日本語</option>
+              <option value="ko" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>한국어</option>
+              <option value="yue" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>粤语</option>
             </select>
           </div>
 
           {/* Text Language */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
               合成文本语种
             </label>
             <select
@@ -349,13 +399,13 @@ export default function ConfigPanel({
               onChange={(e) =>
                 setTextLang(e.target.value as ChatConfig['text_lang'])
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full border-2 ${theme === 'dark' ? 'border-purple-500/30 focus:border-purple-500/50 focus:ring-purple-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all`}
             >
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-              <option value="ja">日本語</option>
-              <option value="ko">한국어</option>
-              <option value="yue">粤语</option>
+              <option value="zh" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>中文</option>
+              <option value="en" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>English</option>
+              <option value="ja" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>日本語</option>
+              <option value="ko" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>한국어</option>
+              <option value="yue" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>粤语</option>
             </select>
           </div>
 
@@ -364,38 +414,39 @@ export default function ConfigPanel({
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full text-left text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className={`w-full text-left text-sm ${theme === 'dark' ? 'text-emerald-400 hover:text-emerald-300' : 'text-blue-600 hover:text-blue-700'} font-medium flex items-center space-x-2 transition-colors`}
             >
-              {showAdvanced ? '▼' : '▶'} 高级参数
+              <span>{showAdvanced ? '▼' : '▶'}</span>
+              <span>高级参数</span>
             </button>
           </div>
 
           {/* Advanced Options */}
           {showAdvanced && (
-            <div className="space-y-4 border-t pt-4">
+            <div className={`space-y-4 border-t-2 ${theme === 'dark' ? 'border-emerald-500/30' : 'border-gray-200'} pt-4`}>
               {/* Text Split Method */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
                   文本切分方法
                 </label>
                 <select
                   value={textSplitMethod}
                   onChange={(e) => setTextSplitMethod(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all`}
                 >
-                  <option value="cut0">不切</option>
-                  <option value="cut1">凑四句一切</option>
-                  <option value="cut2">凑50字一切</option>
-                  <option value="cut3">按中文句号。切</option>
-                  <option value="cut4">按英文句号.切</option>
-                  <option value="cut5">按标点符号切</option>
+                  <option value="cut0" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>不切</option>
+                  <option value="cut1" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>凑四句一切</option>
+                  <option value="cut2" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>凑50字一切</option>
+                  <option value="cut3" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>按中文句号。切</option>
+                  <option value="cut4" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>按英文句号.切</option>
+                  <option value="cut5" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>按标点符号切</option>
                 </select>
               </div>
 
               {/* Speed Factor */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  语速调整: {speedFactor.toFixed(1)} (高为更快)
+                <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                  语速调整: <span className={theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'}>{speedFactor.toFixed(1)}</span> (高为更快)
                 </label>
                 <input
                   type="range"
@@ -410,8 +461,8 @@ export default function ConfigPanel({
 
               {/* Fragment Interval */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  句间停顿: {fragmentInterval.toFixed(1)} 秒
+                <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                  句间停顿: <span className={theme === 'dark' ? 'text-purple-400' : 'text-gray-600'}>{fragmentInterval.toFixed(1)}</span> 秒
                 </label>
                 <input
                   type="range"
@@ -425,13 +476,13 @@ export default function ConfigPanel({
               </div>
 
               {/* GPT Sampling Parameters */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
+              <div className="space-y-3">
+                <label className={`block text-sm font-medium ${themeClasses.text.primary}`}>
                   GPT采样参数
                 </label>
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    top_k: {topK}
+                  <label className={`block text-xs ${themeClasses.text.secondary} mb-2`}>
+                    top_k: <span className={theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'}>{topK}</span>
                   </label>
                   <input
                     type="range"
@@ -443,8 +494,8 @@ export default function ConfigPanel({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    top_p: {topP.toFixed(2)}
+                  <label className={`block text-xs ${themeClasses.text.secondary} mb-2`}>
+                    top_p: <span className={theme === 'dark' ? 'text-purple-400' : 'text-gray-600'}>{topP.toFixed(2)}</span>
                   </label>
                   <input
                     type="range"
@@ -457,8 +508,8 @@ export default function ConfigPanel({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    temperature: {temperature.toFixed(2)}
+                  <label className={`block text-xs ${themeClasses.text.secondary} mb-2`}>
+                    temperature: <span className={theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'}>{temperature.toFixed(2)}</span>
                   </label>
                   <input
                     type="range"
@@ -473,12 +524,12 @@ export default function ConfigPanel({
               </div>
 
               {/* Model Weights */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
+              <div className="space-y-3">
+                <label className={`block text-sm font-medium ${themeClasses.text.primary}`}>
                   模型权重 (可选)
                 </label>
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">
+                  <label className={`block text-xs ${themeClasses.text.secondary} mb-2`}>
                     GPT模型路径
                   </label>
                   <input
@@ -486,11 +537,11 @@ export default function ConfigPanel({
                     value={gptWeightsPath}
                     onChange={(e) => setGptWeightsPath(e.target.value)}
                     placeholder="例如: GPT_SoVITS/pretrained_models/model.ckpt"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 text-sm ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 transition-all`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">
+                  <label className={`block text-xs ${themeClasses.text.secondary} mb-2`}>
                     SoVITS模型路径
                   </label>
                   <input
@@ -498,33 +549,42 @@ export default function ConfigPanel({
                     value={sovitsWeightsPath}
                     onChange={(e) => setSovitsWeightsPath(e.target.value)}
                     placeholder="例如: GPT_SoVITS/pretrained_models/model.pth"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full border-2 ${theme === 'dark' ? 'border-purple-500/30 focus:border-purple-500/50 focus:ring-purple-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 text-sm ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 transition-all`}
                   />
                 </div>
               </div>
             </div>
           )}
 
-            {error && (
-              <div className="text-red-500 text-sm">{error}</div>
-            )}
-
-            <div className="flex space-x-2">
-              <button
-                onClick={handleSave}
-                disabled={isLoading}
-                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
-              >
-                {isLoading ? '保存中...' : '保存'}
-              </button>
-              <button
-                onClick={onClose}
-                disabled={isLoading}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-              >
-                取消
-              </button>
+          {error && (
+            <div className={`text-sm ${theme === 'dark' ? 'text-red-400 bg-red-900/30 border-red-500/30' : 'text-red-600 bg-red-50 border-red-300'} px-3 py-2 rounded-lg border mt-4`}>
+              {error}
             </div>
+          )}
+
+          <div className="flex space-x-3 mt-6">
+            <button
+              onClick={handleSave}
+              disabled={isLoading}
+              className={`flex-1 px-4 py-2.5 ${themeClasses.bg.button} ${themeClasses.text.primary} ${themeClasses.bg.buttonHover} disabled:${theme === 'dark' ? 'bg-zinc-800/50' : 'bg-gray-200'} disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-200 font-medium border-2 ${themeClasses.border.button} hover:${theme === 'dark' ? 'border-emerald-400' : 'border-blue-500'} disabled:${theme === 'dark' ? 'border-zinc-700' : 'border-gray-300'}`}
+            >
+              {isLoading ? '保存中...' : '保存'}
+            </button>
+            <button
+              onClick={onClose}
+              disabled={isLoading}
+              className={`px-4 py-2.5 border-2 ${themeClasses.border.buttonSecondary} rounded-lg ${themeClasses.bg.button} ${themeClasses.text.primary} ${themeClasses.bg.buttonHover} hover:${theme === 'dark' ? 'border-zinc-500/50' : 'border-gray-400'} disabled:cursor-not-allowed transition-all duration-200`}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+        )}
+
+        {/* Character Management Tab */}
+        {activeTab === 'character' && (
+          <div className="space-y-4">
+            <CharacterSwitcher onCharacterChange={handleCharacterChange} />
           </div>
         )}
       </div>

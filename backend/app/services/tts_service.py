@@ -5,7 +5,7 @@ Handles text-to-speech conversion via GPT-SoVITS API
 import asyncio
 import base64
 import logging
-from typing import Optional, List, AsyncIterator
+from typing import Optional, List
 import aiohttp
 from app.config import settings
 
@@ -50,64 +50,24 @@ class TTSService:
         url = f"{self.base_url}/tts"
         
         # Clean and validate text
-        original_text = text
         text = text.strip()
-        
         # Remove leading punctuation marks that might cause issues
-        # Include more punctuation marks
-        leading_punctuation = ['，', ',', '。', '.', '！', '!', '？', '?', '、', '：', ':', '；', ';', '…', '…', '—', '-', '–', '—', ' ']
-        while text and text[0] in leading_punctuation:
+        while text and text[0] in ['，', ',', '。', '.', '！', '!', '？', '?', '、']:
             text = text[1:].strip()
         
-        # Also remove trailing punctuation that might cause issues
-        trailing_punctuation = ['，', ',', '。', '.', '！', '!', '？', '?', '、', '：', ':', '；', ';']
-        while text and text[-1] in trailing_punctuation and len(text) > 1:
-            text = text[:-1].strip()
-        
         if not text:
-            logger.error(f"Text is empty after cleaning. Original: {original_text[:50]}...")
+            logger.error("Text is empty after cleaning")
             return None
-        
-        # Log text cleaning
-        if original_text != text:
-            logger.info(f"Text cleaned: '{original_text[:50]}...' -> '{text[:50]}...'")
         
         # Clean prompt text
         prompt_text = prompt_text.strip() if prompt_text else ""
         
-        # Validate prompt_text matches prompt_lang
-        if prompt_text and prompt_lang:
-            logger.info(f"Using prompt_text: '{prompt_text[:50]}...' with prompt_lang: {prompt_lang}")
-        elif not prompt_text:
-            logger.warning(f"prompt_text is empty but prompt_lang is {prompt_lang}. This may cause issues.")
-        
-        # Validate language parameters
-        if not ref_audio_path:
-            logger.error("ref_audio_path is empty")
-            return None
-        
-        # Log language configuration
-        logger.info(f"TTS language config: text_lang={text_lang}, prompt_lang={prompt_lang}, text_length={len(text)}")
-        
         # Build request payload with required and default parameters
-        # Ensure language codes are lowercase and valid
-        text_lang_clean = text_lang.lower().strip()
-        prompt_lang_clean = prompt_lang.lower().strip()
-        
-        # Validate language codes
-        valid_langs = ['zh', 'en', 'ja', 'ko', 'yue']
-        if text_lang_clean not in valid_langs:
-            logger.warning(f"Invalid text_lang: {text_lang_clean}, defaulting to 'zh'")
-            text_lang_clean = 'zh'
-        if prompt_lang_clean not in valid_langs:
-            logger.warning(f"Invalid prompt_lang: {prompt_lang_clean}, defaulting to 'zh'")
-            prompt_lang_clean = 'zh'
-        
         payload = {
             "text": text,
-            "text_lang": text_lang_clean,
+            "text_lang": text_lang.lower(),
             "ref_audio_path": ref_audio_path,
-            "prompt_lang": prompt_lang_clean,
+            "prompt_lang": prompt_lang.lower(),
             "prompt_text": prompt_text,
             "top_k": top_k,
             "top_p": top_p,
@@ -155,20 +115,8 @@ class TTSService:
                             except:
                                 logger.error(f"TTS API error {response.status}: {error_text}")
                             
-                            logger.error(f"Request details:")
-                            logger.error(f"  text (cleaned): {text[:100]}...")
-                            logger.error(f"  text_lang: {text_lang}")
-                            logger.error(f"  prompt_lang: {prompt_lang}")
-                            logger.error(f"  prompt_text: {prompt_text[:100] if prompt_text else 'empty'}...")
-                            logger.error(f"  ref_audio_path: {ref_audio_path}")
-                            logger.error(f"  text_split_method: {text_split_method}")
-                            logger.error(f"  Full payload keys: {list(payload.keys())}")
-                            
-                            # Log payload for debugging (without sensitive data)
-                            payload_debug = {k: v for k, v in payload.items() if k not in ['text', 'prompt_text']}
-                            payload_debug['text_length'] = len(text)
-                            payload_debug['prompt_text_length'] = len(prompt_text) if prompt_text else 0
-                            logger.error(f"  Payload summary: {payload_debug}")
+                            logger.error(f"Request details: text={text[:100]}..., text_lang={text_lang}, prompt_lang={prompt_lang}, prompt_text={prompt_text[:50] if prompt_text else 'empty'}...")
+                            logger.error(f"ref_audio_path={ref_audio_path}")
                             
                             # Don't retry on 400 errors (bad request), only retry on 500+ errors
                             if response.status >= 500 and attempt < max_retries - 1:
@@ -288,132 +236,6 @@ class TTSService:
         except Exception as e:
             logger.error(f"Error setting SoVITS weights: {str(e)}")
             return False
-    
-    async def stream_text_to_speech(
-        self,
-        text: str,
-        text_lang: str,
-        ref_audio_path: str,
-        prompt_text: str = "",
-        prompt_lang: str = "zh",
-        text_split_method: str = "cut5",
-        speed_factor: float = 1.0,
-        fragment_interval: float = 0.3,
-        top_k: int = 5,
-        top_p: float = 1.0,
-        temperature: float = 1.0,
-        aux_ref_audio_paths: List[str] = None
-    ) -> AsyncIterator[bytes]:
-        """
-        Stream text-to-speech conversion using GPT-SoVITS API
-        
-        Args:
-            text: Text to convert
-            text_lang: Text language (zh/en/ja)
-            ref_audio_path: Reference audio file path
-            prompt_text: Prompt text for reference audio
-            prompt_lang: Prompt language
-            text_split_method: Text splitting method
-            speed_factor: Speed adjustment factor
-            fragment_interval: Fragment interval
-            top_k: Top-k sampling parameter
-            top_p: Top-p sampling parameter
-            temperature: Temperature parameter
-            aux_ref_audio_paths: Auxiliary reference audio paths
-            
-        Yields:
-            Audio chunks as bytes
-        """
-        url = f"{self.base_url}/tts"
-        
-        # Clean and validate text (same as non-streaming version)
-        original_text = text
-        text = text.strip()
-        
-        # Remove leading punctuation marks
-        leading_punctuation = ['，', ',', '。', '.', '！', '!', '？', '?', '、', '：', ':', '；', ';', '…', '…', '—', '-', '–', '—', ' ']
-        while text and text[0] in leading_punctuation:
-            text = text[1:].strip()
-        
-        # Remove trailing punctuation
-        trailing_punctuation = ['，', ',', '。', '.', '！', '!', '？', '?', '、', '：', ':', '；', ';']
-        while text and text[-1] in trailing_punctuation and len(text) > 1:
-            text = text[:-1].strip()
-        
-        if not text:
-            logger.error(f"Text is empty after cleaning. Original: {original_text[:50]}...")
-            return
-        
-        # Clean prompt text
-        prompt_text = prompt_text.strip() if prompt_text else ""
-        
-        # Validate language codes
-        text_lang_clean = text_lang.lower().strip()
-        prompt_lang_clean = prompt_lang.lower().strip()
-        valid_langs = ['zh', 'en', 'ja', 'ko', 'yue']
-        if text_lang_clean not in valid_langs:
-            logger.warning(f"Invalid text_lang: {text_lang_clean}, defaulting to 'zh'")
-            text_lang_clean = 'zh'
-        if prompt_lang_clean not in valid_langs:
-            logger.warning(f"Invalid prompt_lang: {prompt_lang_clean}, defaulting to 'zh'")
-            prompt_lang_clean = 'zh'
-        
-        # Build request payload with streaming_mode enabled
-        payload = {
-            "text": text,
-            "text_lang": text_lang_clean,
-            "ref_audio_path": ref_audio_path,
-            "prompt_lang": prompt_lang_clean,
-            "prompt_text": prompt_text,
-            "top_k": top_k,
-            "top_p": top_p,
-            "temperature": temperature,
-            "text_split_method": text_split_method,
-            "batch_size": 1,
-            "batch_threshold": 0.75,
-            "split_bucket": True,
-            "speed_factor": speed_factor,
-            "fragment_interval": fragment_interval,
-            "seed": -1,
-            "media_type": "wav",
-            "parallel_infer": True,
-            "repetition_penalty": 1.35,
-            "sample_steps": 32,
-            "super_sampling": False,
-            "streaming_mode": True,  # Enable streaming mode
-            "overlap_length": 2,
-            "min_chunk_length": 16,
-            "aux_ref_audio_paths": aux_ref_audio_paths or []
-        }
-        
-        logger.info(f"Starting streaming TTS: text_lang={text_lang_clean}, prompt_lang={prompt_lang_clean}, "
-                   f"text_length={len(text)}")
-        
-        try:
-            # Use longer timeout for streaming
-            streaming_timeout = aiohttp.ClientTimeout(total=120)  # 2 minutes for streaming
-            
-            async with aiohttp.ClientSession(timeout=streaming_timeout) as session:
-                async with session.post(url, json=payload) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"TTS streaming API error {response.status}: {error_text}")
-                        return
-                    
-                    # Stream audio chunks
-                    chunk_index = 0
-                    async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
-                        if chunk:
-                            logger.debug(f"Received audio chunk {chunk_index}, size: {len(chunk)} bytes")
-                            yield chunk
-                            chunk_index += 1
-                    
-                    logger.info(f"Streaming TTS completed, total chunks: {chunk_index}")
-        
-        except asyncio.TimeoutError:
-            logger.error("TTS streaming API timeout")
-        except Exception as e:
-            logger.error(f"TTS streaming exception: {str(e)}")
 
 
 # Global TTS service instance

@@ -1,113 +1,81 @@
 /**
- * Audio player component with streaming support
+ * Audio player component with collapsible controls
  */
 import React, { useState, useRef, useEffect } from 'react'
+import { useTheme } from '../contexts/ThemeContext'
+import { getThemeClasses } from '../utils/theme'
+import AudioWaveform from './AudioWaveform'
 
 interface AudioPlayerProps {
   audioUrl: string
   autoPlay?: boolean
-  isLoading?: boolean  // For streaming audio
 }
 
 export default function AudioPlayer({
   audioUrl,
   autoPlay = false,
-  isLoading = false,
 }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [isExpanded, setIsExpanded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const previousUrlRef = useRef<string | null>(null)
+  const hasAutoPlayedRef = useRef<string>('')
 
   useEffect(() => {
-    // Clean up previous audio URL
-    if (previousUrlRef.current && previousUrlRef.current !== audioUrl) {
-      URL.revokeObjectURL(previousUrlRef.current)
+    // Reset state when audioUrl changes
+    if (audioRef.current && audioRef.current.src !== audioUrl) {
+      setIsPlaying(false)
+      setIsExpanded(false)
     }
-    previousUrlRef.current = audioUrl
 
-    if (!audioUrl) return
-
-    // Create new audio element or update existing one
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl)
     } else {
-      // For streaming audio, we need to update the source
-      const wasPlaying = !audioRef.current.paused
-      const currentTime = audioRef.current.currentTime
-      
-      audioRef.current.pause()
       audioRef.current.src = audioUrl
-      audioRef.current.load()
-      
-      // Restore playback state if it was playing
-      if (wasPlaying) {
-        audioRef.current.currentTime = currentTime
-        audioRef.current.play().catch((e) => {
-          console.error('Resume play failed:', e)
-        })
-      }
     }
 
     const audio = audioRef.current
 
-    const updateTime = () => setCurrentTime(audio.currentTime)
-    const updateDuration = () => {
-      if (!isNaN(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration)
-      }
-    }
     const handleEnded = () => {
       setIsPlaying(false)
-      setCurrentTime(0)
+      setIsExpanded(false)
     }
-    const handlePlay = () => setIsPlaying(true)
+    const handlePlay = () => {
+      setIsPlaying(true)
+      setIsExpanded(true)
+    }
     const handlePause = () => setIsPlaying(false)
-    const handleLoadedData = () => {
-      updateDuration()
-    }
 
-    audio.addEventListener('timeupdate', updateTime)
-    audio.addEventListener('loadedmetadata', updateDuration)
-    audio.addEventListener('loadeddata', handleLoadedData)
-    audio.addEventListener('durationchange', updateDuration)
     audio.addEventListener('ended', handleEnded)
     audio.addEventListener('play', handlePlay)
     audio.addEventListener('pause', handlePause)
 
-    // Try to load the audio
-    audio.load()
+    // Auto play when audio is ready and autoPlay is enabled
+    const handleCanPlay = () => {
+      if (autoPlay && hasAutoPlayedRef.current !== audioUrl) {
+        hasAutoPlayedRef.current = audioUrl
+        audio.play().catch((e) => {
+          console.error('Auto-play failed:', e)
+        })
+      }
+    }
 
-    if (autoPlay && !isLoading) {
+    audio.addEventListener('canplay', handleCanPlay)
+
+    // Try to play immediately if audio is already loaded
+    if (autoPlay && hasAutoPlayedRef.current !== audioUrl && audio.readyState >= 2) {
+      hasAutoPlayedRef.current = audioUrl
       audio.play().catch((e) => {
         console.error('Auto-play failed:', e)
       })
     }
 
     return () => {
-      audio.removeEventListener('timeupdate', updateTime)
-      audio.removeEventListener('loadedmetadata', updateDuration)
-      audio.removeEventListener('loadeddata', handleLoadedData)
-      audio.removeEventListener('durationchange', updateDuration)
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('play', handlePlay)
       audio.removeEventListener('pause', handlePause)
+      audio.removeEventListener('canplay', handleCanPlay)
     }
-  }, [audioUrl, autoPlay, isLoading])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (previousUrlRef.current) {
-        URL.revokeObjectURL(previousUrlRef.current)
-      }
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-      }
-    }
-  }, [])
+  }, [audioUrl, autoPlay])
 
   const togglePlay = () => {
     if (!audioRef.current) return
@@ -115,54 +83,31 @@ export default function AudioPlayer({
     if (isPlaying) {
       audioRef.current.pause()
     } else {
+      setIsExpanded(true)
       audioRef.current.play().catch((e) => {
         console.error('Play failed:', e)
       })
     }
   }
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!audioRef.current) return
-    const newTime = parseFloat(e.target.value)
-    audioRef.current.currentTime = newTime
-    setCurrentTime(newTime)
-  }
+  const { theme } = useTheme()
+  const themeClasses = getThemeClasses(theme)
 
-  const formatTime = (seconds: number): string => {
-    if (isNaN(seconds)) return '0:00'
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+  const playButtonClasses = theme === 'dark'
+    ? 'bg-gradient-to-br from-emerald-500 to-purple-500 hover:from-emerald-400 hover:to-purple-400 border-emerald-400/40 hover:shadow-emerald-500/30 ring-emerald-400/50 ring-purple-400/50'
+    : 'bg-blue-500 hover:bg-blue-600 border-blue-400 hover:shadow-blue-500/30 ring-blue-400/50'
 
   return (
-    <div className="flex items-center space-x-2 bg-white rounded-lg p-2 border border-gray-300">
+    <div className="relative inline-flex items-center">
+      {/* Compact play button */}
       <button
         onClick={togglePlay}
-        disabled={isLoading || !audioUrl}
-        className="w-8 h-8 flex items-center justify-center bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+        className={`w-8 h-8 flex items-center justify-center ${playButtonClasses} text-white rounded-full transition-all duration-200 shadow-md border-2 ${
+          isPlaying ? 'ring-2' : ''
+        }`}
+        aria-label={isPlaying ? 'Pause audio' : 'Play audio'}
       >
-        {isLoading ? (
-          <svg
-            className="w-4 h-4 animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-        ) : isPlaying ? (
+        {isPlaying ? (
           <svg
             className="w-4 h-4"
             fill="currentColor"
@@ -181,25 +126,40 @@ export default function AudioPlayer({
         )}
       </button>
       
-      <div className="flex-1">
-        {isLoading && duration === 0 ? (
-          <div className="text-xs text-gray-500 py-1">正在生成语音...</div>
-        ) : (
-          <input
-            type="range"
-            min="0"
-            max={duration || 0}
-            value={currentTime}
-            onChange={handleSeek}
-            disabled={isLoading || duration === 0}
-            className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50"
-          />
-        )}
-      </div>
-      
-      <span className="text-xs text-gray-500 min-w-[40px] text-right">
-        {formatTime(currentTime)} / {formatTime(duration)}
-      </span>
+      {/* Expanded controls with waveform */}
+      {isExpanded && (
+        <div className={`ml-3 flex items-center space-x-3 ${themeClasses.bg.messageAssistant} backdrop-blur-sm rounded-lg px-4 py-2 border-2 ${theme === 'dark' ? 'border-purple-500/30 shadow-purple-500/20' : 'border-gray-300'} shadow-lg animate-expand min-w-0 max-w-[calc(100vw-200px)] sm:max-w-none`}>
+          <div className="flex-1 min-w-0 flex items-center">
+            <AudioWaveform isPlaying={isPlaying} />
+          </div>
+
+          {/* Collapse button */}
+          <button
+            onClick={() => {
+              if (isPlaying) {
+                audioRef.current?.pause()
+              }
+              setIsExpanded(false)
+            }}
+            className={`w-5 h-5 flex items-center justify-center ${themeClasses.text.secondary} hover:${themeClasses.text.primary} transition-colors flex-shrink-0`}
+            aria-label="Collapse audio player"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
