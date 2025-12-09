@@ -1,0 +1,71 @@
+/**
+ * TypeScript type definitions
+ */
+
+export interface Message {
+  role: 'user' | 'assistant'
+  content: string
+  audioUrl?: string
+  isLoading?: boolean
+  error?: string
+}
+
+export interface ChatConfig {
+  ref_audio_path: string
+  prompt_text: string
+  prompt_lang: 'zh' | 'en' | 'ja' | 'ko' | 'yue'
+  text_lang: 'zh' | 'en' | 'ja' | 'ko' | 'yue'
+  text_split_method: string
+  speed_factor: number
+  fragment_interval: number
+  top_k: number
+  top_p: number
+  temperature: number
+  aux_ref_audio_paths?: string[]
+}
+
+export interface ChatRequest {
+  message: string
+  history: Message[]
+  config: ChatConfig
+}
+
+export interface ChatResponse {
+  type: 'text' | 'complete' | 'audio' | 'audio_start' | 'audio_chunk' | 'audio_complete' | 'error'
+  content?: string
+  text?: string
+  data?: string  // Base64 audio data (for non-streaming or chunk data)
+  index?: number  // Audio chunk index
+  error?: string
+}
+
+export interface ConfigResponse {
+  ref_audio_path: string
+  prompt_text: string
+  prompt_lang: string
+  text_lang: string
+  text_split_method: string
+  speed_factor: number
+  fragment_interval: number
+  top_k: number
+  top_p: number
+  temperature: number
+  gpt_weights_path?: string
+  sovits_weights_path?: string
+}
+
+export interface ConfigUpdateRequest {
+  ref_audio_path?: string
+  prompt_text?: string
+  prompt_lang?: string
+  text_lang?: string
+  text_split_method?: string
+  speed_factor?: number
+  fragment_interval?: number
+  top_k?: number
+  top_p?: number
+  temperature?: number
+  gpt_weights_path?: string
+  sovits_weights_path?: string
+}
+
