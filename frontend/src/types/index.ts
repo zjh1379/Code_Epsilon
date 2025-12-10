@@ -61,6 +61,9 @@ export interface ConfigResponse {
   media_type: string
   gpt_weights_path?: string
   sovits_weights_path?: string
+  llm_provider?: string
+  llm_model?: string
+  gemini_api_key?: string
 }
 
 export interface ConfigUpdateRequest {
@@ -78,6 +81,9 @@ export interface ConfigUpdateRequest {
   media_type?: string
   gpt_weights_path?: string
   sovits_weights_path?: string
+  llm_provider?: string
+  llm_model?: string
+  gemini_api_key?: string
 }
 
 export interface Character {
@@ -97,5 +103,53 @@ export interface CharacterCreateRequest {
 export interface CharacterUpdateRequest {
   name?: string
   system_prompt?: string
+}
+
+/**
+ * Graph data types for knowledge graph visualization
+ */
+export interface GraphNode {
+  id: string
+  label: string
+  type: string
+  properties: Record<string, any>
+}
+
+export interface GraphLink {
+  source: string
+  target: string
+  type: string
+  properties?: Record<string, any>
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
+
+export interface GraphStats {
+  total_nodes: number
+  total_relations: number
+  node_types: Record<string, number>
+  relation_types: Record<string, number>
+}
+
+export interface NodeDetails {
+  id: string
+  type: string
+  name: string
+  properties: Record<string, any>
+  incoming_relations: Array<{
+    source: string
+    source_name?: string
+    type: string
+    properties: Record<string, any>
+  }>
+  outgoing_relations: Array<{
+    target: string
+    target_name?: string
+    type: string
+    properties: Record<string, any>
+  }>
 }
 

@@ -33,6 +33,8 @@ class ChatRequest(BaseModel):
     message: str
     history: List[Message] = []
     config: ChatConfig
+    user_id: Optional[str] = None  # User ID for memory system (optional)
+    conversation_id: Optional[str] = None  # Conversation ID for memory system (optional)
 
 
 class ChatResponse(BaseModel):

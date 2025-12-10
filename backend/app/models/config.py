@@ -21,6 +21,11 @@ class ConfigResponse(BaseModel):
     media_type: str = "ogg"  # Audio format: "wav", "ogg" (recommended for streaming), "aac", "raw", "fmp4"
     gpt_weights_path: Optional[str] = None
     sovits_weights_path: Optional[str] = None
+    
+    # LLM Configuration
+    llm_provider: str = "openai" # "openai", "gemini"
+    llm_model: str = "gpt-3.5-turbo"
+    gemini_api_key: Optional[str] = None
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -39,4 +44,9 @@ class ConfigUpdateRequest(BaseModel):
     media_type: Optional[str] = None  # Audio format: "wav", "ogg", "aac", "raw", "fmp4"
     gpt_weights_path: Optional[str] = None
     sovits_weights_path: Optional[str] = None
+    
+    # LLM Configuration
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 

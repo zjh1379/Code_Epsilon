@@ -1,15 +1,41 @@
 """
 FastAPI application entry point
 """
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.services.memory_service import initialize_memory_service, get_memory_service
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    # Startup: Initialize memory service
+    logger.info("Initializing services...")
+    memory_service = initialize_memory_service()
+    if memory_service:
+        logger.info("Memory service initialized successfully")
+    else:
+        logger.info("Memory service not initialized (disabled or not configured)")
+    
+    yield
+    
+    # Shutdown: Close memory service
+    memory_service = get_memory_service()
+    if memory_service:
+        memory_service.close()
+        logger.info("Memory service closed")
 
 # Create FastAPI application instance
 app = FastAPI(
     title="异界声律·Epsilon API",
     description="LLM文本对话与GPT-SoVITS语音合成Web应用",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -35,11 +61,12 @@ async def health_check():
 
 
 # Import API routers
-from app.api import chat, config, upload, characters
+from app.api import chat, config, upload, characters, memory
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(characters.router, prefix="/api", tags=["characters"])
+app.include_router(memory.router, prefix="/api", tags=["memory"])
 
 if __name__ == "__main__":
     import uvicorn

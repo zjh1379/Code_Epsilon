@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { getConfig, updateConfig, uploadAudioFile } from '../services/api'
 import CharacterSwitcher from './CharacterSwitcher'
+import KnowledgeGraphViewer from './KnowledgeGraphViewer/KnowledgeGraphViewer'
 import { useTheme } from '../contexts/ThemeContext'
 import { getThemeClasses } from '../utils/theme'
 import type { ChatConfig } from '../types'
@@ -38,11 +39,24 @@ export default function ConfigPanel({
   const [isDragging, setIsDragging] = useState(false)
   const [uploadedFileName, setUploadedFileName] = useState<string>('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [activeTab, setActiveTab] = useState<'tts' | 'character'>('tts')
+  const [activeTab, setActiveTab] = useState<'tts' | 'llm' | 'character' | 'graph'>('tts')
+  const [llmProvider, setLlmProvider] = useState('openai')
+  const [llmModel, setLlmModel] = useState('gpt-3.5-turbo')
+  const [geminiApiKey, setGeminiApiKey] = useState('')
+  const [isEditingGeminiKey, setIsEditingGeminiKey] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const themeClasses = getThemeClasses(theme)
+
+  const AVAILABLE_MODELS = [
+    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "openai" },
+    { id: "gpt-4o", name: "GPT-4o", provider: "openai" },
+    { id: "gemini-3-pro", name: "Gemini 3 Pro", provider: "gemini" },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "gemini" },
+    { id: "gemini-2.5-flash-tts", name: "Gemini 2.5 Flash TTS", provider: "gemini" },
+    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", provider: "gemini" },
+  ]
 
   useEffect(() => {
     // Load config from backend only once when component mounts
@@ -64,6 +78,12 @@ export default function ConfigPanel({
         setStreamingMode(backendConfig.streaming_mode ?? 2)
         setGptWeightsPath(backendConfig.gpt_weights_path || '')
         setSovitsWeightsPath(backendConfig.sovits_weights_path || '')
+        setLlmProvider(backendConfig.llm_provider || 'openai')
+        setLlmModel(backendConfig.llm_model || 'gpt-3.5-turbo')
+        const apiKey = backendConfig.gemini_api_key || ''
+        setGeminiApiKey(apiKey)
+        setIsEditingGeminiKey(!apiKey) // If key exists, not editing by default
+        
         onConfigChange({
           ref_audio_path: backendConfig.ref_audio_path,
           prompt_text: backendConfig.prompt_text || '',
@@ -75,8 +95,8 @@ export default function ConfigPanel({
           top_k: backendConfig.top_k || 5,
           top_p: backendConfig.top_p || 1.0,
           temperature: backendConfig.temperature || 1.0,
-        streaming_mode: backendConfig.streaming_mode ?? 2,
-        media_type: 'fmp4' as ChatConfig['media_type'],
+          streaming_mode: backendConfig.streaming_mode ?? 2,
+          media_type: 'fmp4' as ChatConfig['media_type'],
         })
       })
       .catch((err) => {
@@ -186,6 +206,9 @@ export default function ConfigPanel({
         media_type: 'fmp4',
         gpt_weights_path: gptWeightsPath.trim() || undefined,
         sovits_weights_path: sovitsWeightsPath.trim() || undefined,
+        llm_provider: llmProvider,
+        llm_model: llmModel,
+        gemini_api_key: geminiApiKey.trim() || undefined,
       })
 
       onConfigChange({
@@ -231,7 +254,7 @@ export default function ConfigPanel({
 
   return (
     <div className={`fixed inset-0 ${theme === 'dark' ? 'bg-black/60' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center z-50 p-4`}>
-      <div className={`${themeClasses.bg.panel} backdrop-blur-md rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 ${panelBorder} shadow-2xl`} style={{ scrollbarGutter: 'stable' }}>
+      <div className={`${themeClasses.bg.panel} backdrop-blur-md rounded-2xl p-6 w-full ${activeTab === 'graph' ? 'max-w-6xl' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto border-2 ${panelBorder} shadow-2xl`} style={{ scrollbarGutter: 'stable' }}>
         <div className="flex items-center justify-between mb-6">
           <h2 className={`text-xl font-bold ${themeClasses.titleGradient} bg-clip-text text-transparent`}>
             配置
@@ -258,12 +281,28 @@ export default function ConfigPanel({
             TTS配置
           </button>
           <button
+            onClick={() => setActiveTab('llm')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+              activeTab === 'llm' ? tabActiveClasses : tabInactiveClasses
+            }`}
+          >
+            LLM设置
+          </button>
+          <button
             onClick={() => setActiveTab('character')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
               activeTab === 'character' ? tabActiveClasses : tabInactiveClasses
             }`}
           >
             切换助手
+          </button>
+          <button
+            onClick={() => setActiveTab('graph')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+              activeTab === 'graph' ? tabActiveClasses : tabInactiveClasses
+            }`}
+          >
+            知识图谱
           </button>
         </div>
 
@@ -589,7 +628,132 @@ export default function ConfigPanel({
               {error}
             </div>
           )}
+        </div>
+        )}
 
+        {/* LLM Config Tab */}
+        {activeTab === 'llm' && (
+          <div className="space-y-4">
+            {/* LLM Provider */}
+            <div>
+              <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                LLM 提供商
+              </label>
+              <select
+                value={llmProvider}
+                onChange={(e) => {
+                  setLlmProvider(e.target.value)
+                  // Reset model selection when provider changes if current model doesn't match provider
+                  const defaultModel = e.target.value === 'gemini' ? 'gemini-1.5-pro' : 'gpt-3.5-turbo'
+                  setLlmModel(defaultModel)
+                }}
+                className={`w-full border-2 ${theme === 'dark' ? 'border-emerald-500/30 focus:border-emerald-500/50 focus:ring-emerald-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all`}
+              >
+                <option value="openai" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>OpenAI (兼容)</option>
+                <option value="gemini" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>Google Gemini</option>
+              </select>
+            </div>
+
+            {/* Model Selection */}
+            <div>
+              <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                模型选择
+              </label>
+              <select
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                className={`w-full border-2 ${theme === 'dark' ? 'border-purple-500/30 focus:border-purple-500/50 focus:ring-purple-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} focus:outline-none focus:ring-2 transition-all mb-2`}
+              >
+                {AVAILABLE_MODELS.filter(m => m.provider === llmProvider).map(model => (
+                  <option key={model.id} value={model.id} className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>
+                    {model.name}
+                  </option>
+                ))}
+                <option value="custom" className={theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}>自定义模型...</option>
+              </select>
+              
+              {/* Custom Model Input */}
+              {(!AVAILABLE_MODELS.find(m => m.id === llmModel) || llmModel === 'custom') && (
+                <input
+                  type="text"
+                  value={llmModel === 'custom' ? '' : llmModel}
+                  onChange={(e) => setLlmModel(e.target.value)}
+                  placeholder="输入模型名称 (如 gpt-4o-mini)"
+                  className={`w-full border-2 ${theme === 'dark' ? 'border-purple-500/30 focus:border-purple-500/50 focus:ring-purple-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 transition-all`}
+                />
+              )}
+            </div>
+
+            {/* Gemini API Key */}
+            {llmProvider === 'gemini' && (
+              <div>
+                <label className={`block text-sm font-medium ${themeClasses.text.primary} mb-2`}>
+                  Gemini API Key
+                </label>
+                
+                {!isEditingGeminiKey ? (
+                  <div className="flex items-center space-x-2">
+                    <div className={`flex-1 px-3 py-2 border-2 ${theme === 'dark' ? 'border-emerald-500/30 bg-emerald-900/20' : 'border-green-200 bg-green-50'} rounded-lg flex items-center text-sm ${theme === 'dark' ? 'text-emerald-400' : 'text-green-700'}`}>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      已配置 (Configured)
+                    </div>
+                    <button
+                      onClick={() => {
+                        setGeminiApiKey('') // Clear to force input
+                        setIsEditingGeminiKey(true)
+                      }}
+                      className={`px-4 py-2 text-sm font-medium border-2 ${themeClasses.border.buttonSecondary} rounded-lg ${themeClasses.bg.button} ${themeClasses.text.primary} ${themeClasses.bg.buttonHover} transition-all`}
+                    >
+                      修改
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col space-y-2">
+                    <div className="relative">
+                      <input
+                        type="password"
+                        value={geminiApiKey}
+                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                        placeholder="输入 Google Gemini API Key"
+                        className={`w-full border-2 ${theme === 'dark' ? 'border-yellow-500/30 focus:border-yellow-500/50 focus:ring-yellow-500/50' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/50'} rounded-lg px-3 py-2 ${themeClasses.bg.inputField} backdrop-blur-sm ${themeClasses.text.primary} ${themeClasses.text.placeholder} focus:outline-none focus:ring-2 transition-all`}
+                      />
+                    </div>
+                    {/* Helper text only when editing */}
+                    <p className={`text-xs ${themeClasses.text.secondary}`}>
+                      如果没有 API Key，请访问 Google AI Studio 获取。
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* OpenAI Key Note */}
+            {llmProvider === 'openai' && (
+              <p className={`text-sm ${themeClasses.text.secondary}`}>
+                OpenAI API Key 已在后端 .env 文件中配置。如需更改，请修改配置文件。
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Character Management Tab */}
+        {activeTab === 'character' && (
+          <div className="space-y-4">
+            <CharacterSwitcher onCharacterChange={handleCharacterChange} />
+          </div>
+        )}
+
+        {/* Knowledge Graph Tab */}
+        {activeTab === 'graph' && (
+          <div className="h-[600px] -mx-6 -mb-6">
+            <KnowledgeGraphViewer />
+          </div>
+        )}
+
+        {/* Shared Action Buttons */}
+        {activeTab !== 'graph' && (
           <div className="flex space-x-3 mt-6">
             <button
               onClick={handleSave}
@@ -605,14 +769,6 @@ export default function ConfigPanel({
             >
               取消
             </button>
-          </div>
-        </div>
-        )}
-
-        {/* Character Management Tab */}
-        {activeTab === 'character' && (
-          <div className="space-y-4">
-            <CharacterSwitcher onCharacterChange={handleCharacterChange} />
           </div>
         )}
       </div>

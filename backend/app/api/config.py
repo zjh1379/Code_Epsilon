@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from app.models.config import ConfigResponse, ConfigUpdateRequest
 from app.services.tts_service import tts_service
+from app.services.llm_service import llm_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,10 @@ DEFAULT_CONFIG = {
     "streaming_mode": 2,
     "media_type": "ogg",
     "gpt_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\GPT_weights_v2Pro\isekai60-e15.ckpt",
-    "sovits_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\isekai60_e8_s248.pth"
+    "sovits_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\isekai60_e8_s248.pth",
+    "llm_provider": "openai",
+    "llm_model": "gpt-3.5-turbo",
+    "gemini_api_key": ""
 }
 
 # In-memory configuration storage (for MVP)
@@ -46,7 +50,10 @@ _config_cache = {
     "streaming_mode": 2,
     "media_type": "ogg",
     "gpt_weights_path": None,
-    "sovits_weights_path": None
+    "sovits_weights_path": None,
+    "llm_provider": "openai",
+    "llm_model": "gpt-3.5-turbo",
+    "gemini_api_key": ""
 }
 
 
@@ -55,6 +62,11 @@ def _initialize_config_with_defaults():
     global _config_cache
     if not _config_cache.get("ref_audio_path"):
         _config_cache.update(DEFAULT_CONFIG)
+        
+        # Load values from settings (env vars)
+        if settings.gemini_api_key:
+            _config_cache["gemini_api_key"] = settings.gemini_api_key
+            
         logger.info("Configuration initialized with default values")
 
 
@@ -84,7 +96,10 @@ async def get_config():
         streaming_mode=_config_cache.get("streaming_mode", 2),
         media_type=_config_cache.get("media_type", "ogg"),
         gpt_weights_path=_config_cache.get("gpt_weights_path"),
-        sovits_weights_path=_config_cache.get("sovits_weights_path")
+        sovits_weights_path=_config_cache.get("sovits_weights_path"),
+        llm_provider=_config_cache.get("llm_provider", "openai"),
+        llm_model=_config_cache.get("llm_model", "gpt-3.5-turbo"),
+        gemini_api_key=_config_cache.get("gemini_api_key", "")
     )
 
 
@@ -162,6 +177,33 @@ async def update_config(request: ConfigUpdateRequest):
         else:
             raise HTTPException(status_code=400, detail="SoVITS模型权重设置失败，请检查路径是否正确")
     
+    # Update LLM config
+    llm_updated = False
+    if request.llm_provider is not None:
+        _config_cache["llm_provider"] = request.llm_provider
+        settings.llm_provider = request.llm_provider
+        llm_updated = True
+        
+    if request.llm_model is not None:
+        _config_cache["llm_model"] = request.llm_model
+        settings.openai_model = request.llm_model # Map to internal setting
+        llm_updated = True
+        
+    if request.gemini_api_key is not None:
+        _config_cache["gemini_api_key"] = request.gemini_api_key
+        settings.gemini_api_key = request.gemini_api_key
+        llm_updated = True
+        
+    if llm_updated:
+        try:
+            llm_service.set_model(
+                provider=_config_cache.get("llm_provider", "openai"),
+                model_id=_config_cache.get("llm_model", "gpt-3.5-turbo")
+            )
+        except Exception as e:
+            logger.error(f"Failed to update LLM model: {str(e)}")
+            # Don't fail the request, just log error
+    
     logger.info(f"Configuration updated: {_config_cache}")
     
     return ConfigResponse(
@@ -178,6 +220,9 @@ async def update_config(request: ConfigUpdateRequest):
         streaming_mode=_config_cache["streaming_mode"],
         media_type=_config_cache["media_type"],
         gpt_weights_path=_config_cache["gpt_weights_path"],
-        sovits_weights_path=_config_cache["sovits_weights_path"]
+        sovits_weights_path=_config_cache["sovits_weights_path"],
+        llm_provider=_config_cache.get("llm_provider", "openai"),
+        llm_model=_config_cache.get("llm_model", "gpt-3.5-turbo"),
+        gemini_api_key=_config_cache.get("gemini_api_key", "")
     )
 
