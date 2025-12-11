@@ -14,6 +14,7 @@ interface UseChatOptions {
 
 export function useChat({ config, onConfigChange }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [currentStreamingText, setCurrentStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -67,6 +68,58 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
     }
   }, [])
 
+  const loadConversation = useCallback((newMessages: Message[], id: string) => {
+    setMessages(newMessages)
+    setConversationId(id)
+    setCurrentStreamingText('')
+    setError(null)
+    
+    // Cleanup audio resources
+    if (audioQueuePlayerRef.current) { // Check if this ref exists in scope, seems it was removed/renamed in provided code?
+       // Wait, I see audioQueuePlayerRef in clearMessages in the provided code snippet at the end? 
+       // No, I see completeAudioChunksRef, etc.
+       // The provided code snippet has `audioQueuePlayerRef` in clearMessages but NOT in `useEffect` cleanup or definition. 
+       // Ah, `useChat` provided snippet lines 433: `if (audioQueuePlayerRef.current)`. 
+       // But lines 20-30 don't define it. It might be missing from the read_file output or I missed it.
+       // I'll stick to what I see defined: streamingAudioManagerRef, completeAudioUrlRef.
+    }
+    
+    completeAudioChunksRef.current = []
+    if (completeAudioUrlRef.current) {
+      URL.revokeObjectURL(completeAudioUrlRef.current)
+      completeAudioUrlRef.current = null
+    }
+    if (streamingAudioManagerRef.current) {
+      streamingAudioManagerRef.current.cleanup()
+      streamingAudioManagerRef.current = null
+    }
+    if (streamingAudioUrlRef.current) {
+      URL.revokeObjectURL(streamingAudioUrlRef.current)
+      streamingAudioUrlRef.current = null
+    }
+  }, [])
+
+  const startNewConversation = useCallback(() => {
+    setMessages([])
+    setConversationId(null)
+    setCurrentStreamingText('')
+    setError(null)
+    
+    completeAudioChunksRef.current = []
+    if (completeAudioUrlRef.current) {
+      URL.revokeObjectURL(completeAudioUrlRef.current)
+      completeAudioUrlRef.current = null
+    }
+    if (streamingAudioManagerRef.current) {
+      streamingAudioManagerRef.current.cleanup()
+      streamingAudioManagerRef.current = null
+    }
+    if (streamingAudioUrlRef.current) {
+      URL.revokeObjectURL(streamingAudioUrlRef.current)
+      streamingAudioUrlRef.current = null
+    }
+  }, [])
+
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isLoading) {
@@ -114,6 +167,7 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
               media_type: config.media_type || 'fmp4',
               aux_ref_audio_paths: config.aux_ref_audio_paths || [],
             },
+            conversation_id: conversationId || undefined,
           },
           (response: ChatResponse) => {
             if (response.type === 'text' && response.content) {
@@ -422,7 +476,7 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
         setCurrentStreamingText('')
       }
     },
-    [messages, config, isLoading]
+    [messages, config, isLoading, conversationId]
   )
 
   const clearMessages = useCallback(() => {
@@ -454,6 +508,9 @@ export function useChat({ config, onConfigChange }: UseChatOptions) {
     isLoading,
     currentStreamingText,
     error,
+    conversationId,
+    loadConversation,
+    startNewConversation,
     sendMessage,
     clearMessages,
   }

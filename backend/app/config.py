@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     neo4j_username: str = "neo4j"  # Maps to NEO4J_USERNAME env var
     neo4j_password: str = ""  # Load from env var, do not hardcode
     neo4j_database: str = "neo4j"
+    memory_threshold_score: int = 6  # Only remember facts with score >= 6
+    memory_buffer_size: int = 5      # Process memory every 5 messages
     
     @property
     def neo4j_user(self) -> str:

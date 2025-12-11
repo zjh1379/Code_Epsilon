@@ -44,9 +44,9 @@ export default function GraphCanvas({
   const getNodeColor = useCallback((nodeType: string) => {
     const colorMap: Record<string, string> = {
       User: '#FF6B6B',
-      Topic: '#4ECDC4',
-      Project: '#45B7D1',
-      Skill: '#96CEB4',
+      Topic: '#FF9F43', // Orange as requested
+      Project: '#45B7D1', // Blue
+      Skill: '#96CEB4', // Green
       Resource: '#FFEAA7',
       Conversation: '#DDA0DD',
       Entity: '#95A5A6',
@@ -57,11 +57,23 @@ export default function GraphCanvas({
   // Convert GraphData to NVL format
   const nvlNodes = useMemo<Node[]>(() => {
     return data.nodes.map((node) => {
-      // Calculate node size based on connections
-      const links = data.links.filter(
-        (l) => l.source === node.id || l.target === node.id
-      )
-      const size = Math.sqrt(links.length) * 5 + 20 // Increase base size for better visibility
+      // Calculate node size based on importance score or connections
+      let size = 20 // Base size
+      
+      if (node.properties && node.properties.importance) {
+        // Size by importance (1-10)
+        // Map 1-10 to reasonable pixel sizes, e.g. 1->25, 10->50
+        const importance = Number(node.properties.importance)
+        if (!isNaN(importance)) {
+          size = 20 + (importance * 3)
+        }
+      } else {
+        // Fallback: Size by connections
+        const links = data.links.filter(
+          (l) => l.source === node.id || l.target === node.id
+        )
+        size = Math.sqrt(links.length) * 5 + 20
+      }
 
       return {
         id: node.id,

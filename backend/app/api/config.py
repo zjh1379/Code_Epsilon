@@ -162,20 +162,28 @@ async def update_config(request: ConfigUpdateRequest):
     if request.gpt_weights_path is not None and request.gpt_weights_path.strip():
         # Clean the path
         cleaned_path = request.gpt_weights_path.strip().strip('"').strip("'")
-        success = await tts_service.set_gpt_weights(cleaned_path)
-        if success:
-            _config_cache["gpt_weights_path"] = cleaned_path
-        else:
-            raise HTTPException(status_code=400, detail="GPT模型权重设置失败，请检查路径是否正确")
+        
+        # Only update if changed to avoid unnecessary API calls (and errors if TTS is down)
+        if cleaned_path != _config_cache.get("gpt_weights_path"):
+            success = await tts_service.set_gpt_weights(cleaned_path)
+            if success:
+                _config_cache["gpt_weights_path"] = cleaned_path
+            else:
+                # If we can't connect to TTS service, we should probably still save the path but warn
+                # For now, we'll raise error only if it's a new path that fails
+                raise HTTPException(status_code=400, detail="GPT模型权重设置失败，请检查路径是否正确或确认TTS服务已启动")
     
     if request.sovits_weights_path is not None and request.sovits_weights_path.strip():
         # Clean the path
         cleaned_path = request.sovits_weights_path.strip().strip('"').strip("'")
-        success = await tts_service.set_sovits_weights(cleaned_path)
-        if success:
-            _config_cache["sovits_weights_path"] = cleaned_path
-        else:
-            raise HTTPException(status_code=400, detail="SoVITS模型权重设置失败，请检查路径是否正确")
+        
+        # Only update if changed
+        if cleaned_path != _config_cache.get("sovits_weights_path"):
+            success = await tts_service.set_sovits_weights(cleaned_path)
+            if success:
+                _config_cache["sovits_weights_path"] = cleaned_path
+            else:
+                raise HTTPException(status_code=400, detail="SoVITS模型权重设置失败，请检查路径是否正确或确认TTS服务已启动")
     
     # Update LLM config
     llm_updated = False
@@ -225,4 +233,3 @@ async def update_config(request: ConfigUpdateRequest):
         llm_model=_config_cache.get("llm_model", "gpt-3.5-turbo"),
         gemini_api_key=_config_cache.get("gemini_api_key", "")
     )
-

@@ -6,11 +6,13 @@ import MessageList from './MessageList'
 import InputArea from './InputArea'
 import ConfigPanel from './ConfigPanel'
 import ThemeToggle from './ThemeToggle'
+import HistorySidebar from './HistorySidebar'
 import { useChat } from '../hooks/useChat'
 import { useTheme } from '../contexts/ThemeContext'
 import { getThemeClasses } from '../utils/theme'
 import { getCurrentCharacter } from '../services/api'
-import type { ChatConfig, Character } from '../types'
+import { fetchMessages } from '../services/history'
+import type { ChatConfig, Character, Message } from '../types'
 
 const defaultConfig: ChatConfig = {
   ref_audio_path: '',
@@ -30,10 +32,21 @@ const defaultConfig: ChatConfig = {
 export default function ChatInterface() {
   const [config, setConfig] = useState<ChatConfig>(defaultConfig)
   const [showConfig, setShowConfig] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [currentCharacter, setCurrentCharacter] = useState<Character | null>(null)
   const { theme } = useTheme()
   const themeClasses = getThemeClasses(theme)
-  const { messages, isLoading, currentStreamingText, error, sendMessage, clearMessages } = useChat({
+  const { 
+    messages, 
+    isLoading, 
+    currentStreamingText, 
+    error, 
+    conversationId,
+    loadConversation,
+    startNewConversation,
+    sendMessage, 
+    clearMessages 
+  } = useChat({
     config,
     onConfigChange: setConfig,
   })
@@ -48,17 +61,52 @@ export default function ChatInterface() {
   }, [])
 
   // Show config panel if ref_audio_path is not set
-  React.useEffect(() => {
+  React.  useEffect(() => {
     if (!config.ref_audio_path) {
       setShowConfig(true)
     }
   }, [config.ref_audio_path])
 
+  const handleSelectConversation = async (id: string) => {
+    try {
+      const messagesData = await fetchMessages(id)
+      // Convert HistoryMessage to Message
+      const mappedMessages: Message[] = messagesData.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }))
+      loadConversation(mappedMessages, id)
+      setShowHistory(false)
+    } catch (err) {
+      console.error('Failed to load conversation:', err)
+    }
+  }
+
   return (
     <div className={`flex flex-col h-screen ${themeClasses.bg.main} relative overflow-hidden w-full max-w-full`} data-theme={theme}>
+      <HistorySidebar
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        currentConversationId={conversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewChat={() => {
+          startNewConversation()
+          setShowHistory(false)
+        }}
+      />
+
       {/* Header */}
       <header className={`relative ${themeClasses.bg.header} backdrop-blur-md border-b ${themeClasses.border.header} px-4 py-3 flex items-center justify-between shadow-lg min-w-0 w-full`}>
         <div className="flex items-center space-x-3 min-w-0 flex-1">
+          <button
+            onClick={() => setShowHistory(true)}
+            className={`p-2 -ml-2 rounded-lg ${theme === 'dark' ? 'hover:bg-white/10 text-gray-300' : 'hover:bg-gray-100 text-gray-600'} transition-colors`}
+            title="历史记录"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <h1 className={`text-xl font-bold ${themeClasses.titleGradient} bg-clip-text text-transparent whitespace-nowrap`}>
             异界声律·Epsilon
           </h1>

@@ -31,6 +31,7 @@ class MemoryService:
         self.database = database
         self.driver: Optional[GraphDatabase] = None
         self._initialized = False
+        self._message_buffer: Dict[str, List[Dict[str, str]]] = {}
     
     def initialize(self):
         """Initialize Neo4j connection (sync)"""
@@ -137,6 +138,10 @@ class MemoryService:
 3. Skill（技能）：技术技能、软技能等
 4. Resource（资源）：文档、课程、论文、工具等
 
+对于每个实体，请评估其"重要性评分"（score）：
+- 1-10分：10分代表核心事实（如职业、长期项目），1分代表琐事。
+- 仅提取评分 >= {settings.memory_threshold_score} 的实体。
+
 关系类型：
 - INTERESTED_IN: 用户对话题感兴趣
 - WORKING_ON: 用户正在做的项目
@@ -148,8 +153,8 @@ class MemoryService:
 返回格式（必须是有效的JSON）：
 {{
     "entities": [
-        {{"id": "topic_python", "type": "Topic", "name": "Python", "properties": {{}}}},
-        {{"id": "project_epsilon", "type": "Project", "name": "异界声律·Epsilon", "properties": {{"status": "in_progress"}}}}
+        {{"id": "topic_python", "type": "Topic", "name": "Python", "score": 8, "properties": {{}}}},
+        {{"id": "project_epsilon", "type": "Project", "name": "异界声律·Epsilon", "score": 9, "properties": {{"status": "in_progress"}}}}
     ],
     "relations": [
         {{"source": "{user_id}", "target": "topic_python", "type": "INTERESTED_IN", "properties": {{"confidence": 0.8}}}},
@@ -205,16 +210,38 @@ class MemoryService:
         if not self._initialized:
             raise RuntimeError("MemoryService not initialized")
         
+        # Buffer messages
+        if conversation_id not in self._message_buffer:
+            self._message_buffer[conversation_id] = []
+        
+        self._message_buffer[conversation_id].extend(messages)
+        
+        # Check buffer size (process if buffer has enough messages)
+        # settings.memory_buffer_size defaults to 5
+        if len(self._message_buffer[conversation_id]) < settings.memory_buffer_size:
+            logger.info(f"Buffered messages for conversation {conversation_id}. Current size: {len(self._message_buffer[conversation_id])}")
+            return {"entities_count": 0, "relations_count": 0}
+        
+        # Process buffered messages
+        messages_to_process = self._message_buffer[conversation_id]
+        # Clear buffer immediately to avoid race conditions (simple approach)
+        self._message_buffer[conversation_id] = []
+        
+        logger.info(f"Processing {len(messages_to_process)} buffered messages for conversation {conversation_id}")
+        
         # 1. Merge conversation text
         conversation_text = "\n".join([
-            f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in messages
+            f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in messages_to_process
         ])
         
         # 2. Extract entities and relations
         entities, relations = await self.extract_entities(conversation_text, user_id)
         
+        # Filter by score (Double check, though prompt asks to filter)
+        entities = [e for e in entities if e.get('score', 0) >= settings.memory_threshold_score]
+        
         if not entities and not relations:
-            logger.warning("No entities or relations extracted")
+            logger.warning("No entities or relations extracted (or filtered by score)")
             return {"entities_count": 0, "relations_count": 0}
 
         # 2.5 Generate Embeddings for Entities (Parallelized)
@@ -332,6 +359,7 @@ class MemoryService:
                     props_dict['id'] = entity_id
                     props_dict['name'] = entity_name
                     props_dict['type'] = entity_type
+                    props_dict['importance'] = entity.get('score', 0)  # Save score as importance
                     props_dict['created_at'] = now
                     props_dict['updated_at'] = now
                     if entity.get('embedding'):
@@ -349,6 +377,7 @@ class MemoryService:
                         set_clauses = [
                             "e.name = $name",
                             "e.type = $type",
+                            "e.importance = $importance",
                             "e.updated_at = $updated_at"
                         ]
                         # Add property updates

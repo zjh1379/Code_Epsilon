@@ -7,20 +7,23 @@ import json
 import logging
 import uuid
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from app.models.chat import ChatRequest
 from app.services.llm_service import llm_service
 from app.services.tts_service import tts_service
 from app.services.character_service import character_service
 from app.services.memory_service import get_memory_service
+from app.services.history_service import history_service
+from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-async def generate_chat_stream(request: ChatRequest):
+async def generate_chat_stream(request: ChatRequest, db: Session):
     """
     Generate streaming chat response via SSE.
     Streams text chunks first, then audio chunks (base64-encoded).
@@ -32,6 +35,13 @@ async def generate_chat_stream(request: ChatRequest):
     user_id = request.user_id or "default_user"
     conversation_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
     
+    # Persist conversation and user message to SQLite
+    try:
+        history_service.create_conversation(db, user_id=user_id, conversation_id=conversation_id)
+        history_service.add_message(db, conversation_id=conversation_id, role="user", content=request.message)
+    except Exception as e:
+        logger.error(f"Failed to persist user message: {str(e)}")
+
     try:
         current_character = character_service.get_current_character()
         system_prompt = current_character.system_prompt
@@ -65,6 +75,12 @@ async def generate_chat_stream(request: ChatRequest):
         
         # 2) Send completion message
         yield f"data: {json.dumps({'type': 'complete', 'text': full_text}, ensure_ascii=False)}\n\n"
+        
+        # Persist assistant message to SQLite
+        try:
+            history_service.add_message(db, conversation_id=conversation_id, role="assistant", content=full_text)
+        except Exception as e:
+            logger.error(f"Failed to persist assistant message: {str(e)}")
         
         # 3) Stream audio via GPT-SoVITS
         try:
@@ -100,23 +116,11 @@ async def generate_chat_stream(request: ChatRequest):
         
         # 4) Write conversation to memory (async, non-blocking)
         if memory_service and user_id and full_text:
-            # Prepare messages for memory storage
-            messages_for_memory = []
-            for msg in request.history:
-                messages_for_memory.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
-            # Add current user message
-            messages_for_memory.append({
-                "role": "user",
-                "content": request.message
-            })
-            # Add assistant response
-            messages_for_memory.append({
-                "role": "assistant",
-                "content": full_text
-            })
+            # Prepare messages for memory storage (Only new exchange)
+            messages_for_memory = [
+                {"role": "user", "content": request.message},
+                {"role": "assistant", "content": full_text}
+            ]
             
             # Write memory asynchronously (don't wait for completion)
             async def write_memory_task():
@@ -142,7 +146,7 @@ async def generate_chat_stream(request: ChatRequest):
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
     Chat endpoint with streaming response
     
@@ -168,7 +172,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac, fmp4")
     
     return StreamingResponse(
-        generate_chat_stream(request),
+        generate_chat_stream(request, db),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

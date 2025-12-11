@@ -33,6 +33,8 @@ export interface ChatRequest {
   message: string
   history: Message[]
   config: ChatConfig
+  user_id?: string
+  conversation_id?: string
 }
 
 export interface ChatResponse {
@@ -106,6 +108,29 @@ export interface CharacterUpdateRequest {
 }
 
 /**
+ * Conversation History types (Phase 3A)
+ */
+export interface Conversation {
+  id: string
+  user_id: string
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface HistoryMessage {
+  id: number
+  conversation_id: string
+  role: string
+  content: string
+  created_at: string
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: HistoryMessage[]
+}
+
+/**
  * Graph data types for knowledge graph visualization
  */
 export interface GraphNode {
@@ -152,4 +177,3 @@ export interface NodeDetails {
     properties: Record<string, any>
   }>
 }
-

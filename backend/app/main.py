@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.services.memory_service import initialize_memory_service, get_memory_service
+from app.database import engine, Base
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
+    # Startup: Create DB tables
+    logger.info("Initializing database tables...")
+    Base.metadata.create_all(bind=engine)
+
     # Startup: Initialize memory service
     logger.info("Initializing services...")
     memory_service = initialize_memory_service()
@@ -61,12 +66,13 @@ async def health_check():
 
 
 # Import API routers
-from app.api import chat, config, upload, characters, memory
+from app.api import chat, config, upload, characters, memory, history
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(characters.router, prefix="/api", tags=["characters"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
+app.include_router(history.router, prefix="/api", tags=["history"])
 
 if __name__ == "__main__":
     import uvicorn
