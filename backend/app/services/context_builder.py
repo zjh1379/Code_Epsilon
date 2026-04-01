@@ -50,13 +50,14 @@ class ContextBuilder:
         raw_history: list[Message],
         system_prompt: str = "",
         memory_context: Optional[str] = None,
+        character_state_context: Optional[str] = None,
     ) -> BuiltContext:
         """Build an optimized messages list within the token budget."""
         budget = self.max_tokens - self.output_reserved
         metadata = ContextMetadata()
 
         full_system, summary_tokens_used = self._assemble_system_prompt(
-            system_prompt, memory_context, conversation_id
+            system_prompt, memory_context, character_state_context, conversation_id
         )
         system_tokens = self.counter.count_text(full_system)
 
@@ -118,6 +119,7 @@ class ContextBuilder:
         self,
         base_prompt: str,
         memory_context: Optional[str],
+        character_state_context: Optional[str],
         conversation_id: str,
     ) -> tuple[str, int]:
         """Combine base prompt, memory, and session summary into a single prompt."""
@@ -126,6 +128,9 @@ class ContextBuilder:
 
         if base_prompt:
             parts.append(base_prompt)
+
+        if character_state_context:
+            parts.append(f"\n\n[Relationship context]\n{character_state_context}")
 
         session = self.session_service.get_session(conversation_id)
         if session and session.rolling_summary:

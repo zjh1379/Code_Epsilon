@@ -60,3 +60,21 @@ class ProcessedResponse(BaseModel):
     topics: list[str] = Field(default_factory=list)
     memory_signals: Optional[dict] = None
     actions: Optional[list[dict]] = None
+
+
+class CharacterStateRecord(BaseModel):
+    """Persistent character state for one (user, character) pair."""
+    user_id: str
+    character_id: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    total_conversations: int = 0
+    total_messages: int = 0
+    first_interaction_at: Optional[datetime] = None
+    last_interaction_at: Optional[datetime] = None
+    last_summary_id: Optional[str] = None
+
+    familiarity_phase: str = "new"
+    preferences: dict = Field(default_factory=dict)
+    observations: list[str] = Field(default_factory=list)

@@ -77,6 +77,8 @@ class MemoryService:
                     indexes = [
                         "CREATE INDEX user_id_index IF NOT EXISTS FOR (u:User) ON (u.id)",
                         "CREATE INDEX entity_id_index IF NOT EXISTS FOR (e:Entity) ON (e.id)",
+                        "CREATE INDEX pref_user_index IF NOT EXISTS FOR (p:UserPreference) ON (p.user_id)",
+                        "CREATE INDEX obs_user_index IF NOT EXISTS FOR (o:CharacterObservation) ON (o.user_id)",
                     ]
                     for index_query in indexes:
                         try:
@@ -489,7 +491,8 @@ class MemoryService:
         self,
         user_id: str,
         query_text: str,
-        limit: int = 10
+        limit: int = 10,
+        include_relational: bool = True,
     ) -> str:
         """
         Query related context using Hybrid Search (Vector + Graph)
@@ -591,10 +594,97 @@ class MemoryService:
                         if out_rel and rel_name:
                             expanded_context.append(f"{e_type} '{e_name}' {out_rel} {rel_name}")
 
+                if include_relational:
+                    relational_query = """
+                    MATCH (p:UserPreference {user_id: $user_id})
+                    RETURN p.preference_key as key, p.preference_value as value
+                    ORDER BY p.observed_at DESC
+                    LIMIT 5
+                    """
+                    for rec in tx.run(relational_query, user_id=user_id):
+                        expanded_context.append(
+                            f"user preference: {rec['key']} = {rec['value']}"
+                        )
+
+                    obs_query = """
+                    MATCH (o:CharacterObservation {user_id: $user_id})
+                    RETURN o.content as content
+                    ORDER BY o.observed_at DESC
+                    LIMIT 3
+                    """
+                    for rec in tx.run(obs_query, user_id=user_id):
+                        expanded_context.append(f"character observation: {rec['content']}")
+
                 return list(set(expanded_context)) # Remove duplicates
 
             context_list = session.execute_read(read_tx)
             return "\n".join(context_list) if context_list else ""
+
+    async def write_relational_signals(
+        self,
+        user_id: str,
+        character_id: str,
+        conversation_id: str,
+        preferences: Optional[Dict[str, str]] = None,
+        observation: str = "",
+    ) -> None:
+        """Write preference/observation relational signals into Neo4j."""
+        if not self._initialized or not self.driver:
+            return
+
+        preferences = preferences or {}
+        now = datetime.now().isoformat()
+        with self.driver.session(database=self.database) as session:
+            def write_tx(tx):
+                for key, value in preferences.items():
+                    pref_id = f"pref_{user_id}_{character_id}_{key}"
+                    tx.run(
+                        """
+                        MERGE (p:UserPreference {id: $pref_id})
+                        SET p.user_id = $user_id,
+                            p.character_id = $character_id,
+                            p.preference_key = $key,
+                            p.preference_value = $value,
+                            p.confidence = 0.8,
+                            p.observed_at = $now,
+                            p.source_conversation = $conversation_id
+                        WITH p
+                        MATCH (u:User {id: $user_id})
+                        MERGE (u)-[:HAS_PREFERENCE]->(p)
+                        """,
+                        pref_id=pref_id,
+                        user_id=user_id,
+                        character_id=character_id,
+                        key=key,
+                        value=str(value),
+                        now=now,
+                        conversation_id=conversation_id,
+                    )
+
+                if observation:
+                    obs_id = f"obs_{user_id}_{character_id}_{int(datetime.now().timestamp())}"
+                    tx.run(
+                        """
+                        MERGE (o:CharacterObservation {id: $obs_id})
+                        SET o.user_id = $user_id,
+                            o.character_id = $character_id,
+                            o.content = $content,
+                            o.observed_at = $now,
+                            o.source_conversation = $conversation_id
+                        WITH o
+                        MERGE (c:Character {id: $character_id})
+                        MERGE (u:User {id: $user_id})
+                        MERGE (c)-[:OBSERVED]->(o)
+                        MERGE (o)-[:ABOUT]->(u)
+                        """,
+                        obs_id=obs_id,
+                        user_id=user_id,
+                        character_id=character_id,
+                        content=observation,
+                        now=now,
+                        conversation_id=conversation_id,
+                    )
+            session.execute_write(write_tx)
     
     def _extract_keywords(self, text: str) -> List[str]:
         """Simple keyword extraction (can be optimized with LLM)"""

@@ -6,7 +6,6 @@ import base64
 import json
 import logging
 import uuid
-import asyncio
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -20,6 +19,8 @@ from app.services.context_builder import ContextBuilder
 from app.services.session_service import SessionService
 from app.services.summarizer import summarizer
 from app.services.token_counter import TokenCounter
+from app.services.character_state import character_state_service
+from app.services.response_processor import ResponseProcessor
 from app.config import settings
 from app.database import get_db
 
@@ -41,6 +42,40 @@ _context_builder = ContextBuilder(
     memory_ceiling=settings.context_memory_ceiling,
     summary_ceiling=settings.context_summary_ceiling,
 )
+_response_processor = ResponseProcessor(
+    session_service=_session_service,
+    character_state_service=character_state_service,
+)
+
+
+async def _cleanup_stale_sessions(db: Session, max_idle_seconds: int = 600) -> None:
+    """Generate end-of-session summaries and cleanup stale in-memory sessions."""
+    stale_ids = _session_service.get_stale_sessions(max_idle_seconds=max_idle_seconds)
+    for stale_id in stale_ids:
+        session = _session_service.get_session(stale_id)
+        if session is None:
+            continue
+        try:
+            db_messages = history_service.get_messages(db, stale_id)
+            history_dicts = [{"role": m.role, "content": m.content} for m in db_messages]
+            summary = await summarizer.generate_end_of_session_summary(
+                conversation_id=stale_id,
+                user_id=session.user_id,
+                character_id=session.character_id,
+                messages=history_dicts,
+                db=db,
+            )
+            if summary:
+                character_state_service.set_last_summary(
+                    db=db,
+                    user_id=session.user_id,
+                    character_id=session.character_id,
+                    summary_id=summary.id,
+                )
+        except Exception as e:
+            logger.warning(f"Failed stale session cleanup for {stale_id}: {str(e)}")
+        finally:
+            _session_service.remove_session(stale_id)
 
 
 async def generate_chat_stream(request: ChatRequest, db: Session):
@@ -50,6 +85,7 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
     Integrated with memory system for context retrieval and storage.
     """
     full_text = ""
+    await _cleanup_stale_sessions(db, max_idle_seconds=600)
     
     # Generate user_id and conversation_id if not provided
     user_id = request.user_id or "default_user"
@@ -83,6 +119,13 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
                 logger.warning(f"Failed to query memory context: {str(e)}")
                 # Continue without memory context if query fails
         
+        is_new_session = _session_service.get_session(conversation_id) is None
+        if is_new_session:
+            state = character_state_service.mark_conversation_start(db, user_id, character_id)
+        else:
+            state = character_state_service.get_or_create(db, user_id, character_id)
+        character_state_context = character_state_service.build_prompt_context(state)
+
         built = await _context_builder.build(
             user_message=request.message,
             conversation_id=conversation_id,
@@ -91,6 +134,7 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
             raw_history=request.history,
             system_prompt=system_prompt,
             memory_context=memory_context if memory_context else None,
+            character_state_context=character_state_context,
         )
 
         logger.info(
@@ -161,31 +205,15 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
             logger.error(f"TTS config: text_lang={request.config.text_lang}, prompt_lang={request.config.prompt_lang}, ref_audio_path={request.config.ref_audio_path}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'音频生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
         
-        # 4) Write conversation to memory (async, non-blocking)
-        if memory_service and user_id and full_text:
-            # Prepare messages for memory storage (Only new exchange)
-            messages_for_memory = [
-                {"role": "user", "content": request.message},
-                {"role": "assistant", "content": full_text}
-            ]
-            
-            # Write memory asynchronously (don't wait for completion)
-            async def write_memory_task():
-                try:
-                    await memory_service.write_conversation(
-                        user_id=user_id,
-                        conversation_id=conversation_id,
-                        messages=messages_for_memory,
-                        character_id=character_id
-                    )
-                    logger.info(f"Memory written successfully for conversation {conversation_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to write memory: {str(e)}")
-                    # Don't fail the request if memory write fails
-            
-            # Create background task
-            asyncio.create_task(write_memory_task())
-            logger.debug(f"Memory write task created for conversation {conversation_id}")
+        await _response_processor.process_turn(
+            db=db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            character_id=character_id,
+            user_message=request.message,
+            assistant_text=full_text,
+            history_messages=[{"role": m.role, "content": m.content} for m in request.history],
+        )
     
     except Exception as e:
         logger.error(f"Chat stream error: {str(e)}")
