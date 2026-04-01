@@ -16,11 +16,31 @@ from app.services.tts_service import tts_service
 from app.services.character_service import character_service
 from app.services.memory_service import get_memory_service
 from app.services.history_service import history_service
+from app.services.context_builder import ContextBuilder
+from app.services.session_service import SessionService
+from app.services.summarizer import summarizer
+from app.services.token_counter import TokenCounter
+from app.config import settings
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_session_service = SessionService()
+_token_counter = TokenCounter(
+    provider=settings.llm_provider,
+    model=settings.openai_model,
+)
+_context_builder = ContextBuilder(
+    token_counter=_token_counter,
+    session_service=_session_service,
+    max_tokens=settings.context_max_tokens,
+    output_reserved=settings.context_output_reserved,
+    character_prompt_ceiling=settings.context_character_prompt_ceiling,
+    memory_ceiling=settings.context_memory_ceiling,
+    summary_ceiling=settings.context_summary_ceiling,
+)
 
 
 async def generate_chat_stream(request: ChatRequest, db: Session):
@@ -63,13 +83,40 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
                 logger.warning(f"Failed to query memory context: {str(e)}")
                 # Continue without memory context if query fails
         
-        # 1) Stream LLM response with memory context
-        async for chunk in llm_service.stream_chat(
-            message=request.message,
-            history=request.history,
+        built = await _context_builder.build(
+            user_message=request.message,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            character_id=character_id,
+            raw_history=request.history,
             system_prompt=system_prompt,
-            memory_context=memory_context if memory_context else None
+            memory_context=memory_context if memory_context else None,
+        )
+
+        logger.info(
+            "Context: %s tokens, %s msgs included, %s excluded",
+            built.metadata.total_tokens,
+            built.metadata.messages_included,
+            built.metadata.messages_excluded,
+        )
+
+        session = _session_service.get_session(conversation_id)
+        if (
+            session
+            and session.message_count > 0
+            and session.message_count % settings.context_rolling_threshold == 0
         ):
+            history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
+            new_summary, _ = await summarizer.maybe_rolling_summarize(
+                messages=history_dicts,
+                existing_summary=session.rolling_summary,
+            )
+            if new_summary and new_summary != session.rolling_summary:
+                _session_service.set_rolling_summary(conversation_id, new_summary)
+                logger.info("Rolling summary updated for %s", conversation_id)
+
+        # 1) Stream LLM response with built context
+        async for chunk in llm_service.astream_from_messages(built.messages):
             full_text += chunk
             yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         

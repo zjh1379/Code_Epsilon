@@ -30,13 +30,14 @@
 ### Modified Files
 | File | Change |
 |------|--------|
-| `backend/requirements.txt` | Add tiktoken dependency |
-| `backend/app/database.py` | Import new ORM model so table is auto-created |
+| `backend/requirements.txt` | Add tiktoken, pytest, pytest-asyncio dependencies |
+| `backend/app/main.py` | Import new ORM model before table creation |
 | `backend/app/api/chat.py` | Replace raw history pass-through with ContextBuilder |
+| `backend/app/services/llm_service.py` | Add `astream_from_messages()` method |
 | `backend/app/config.py` | Add context budget configuration fields |
 
 ### Unchanged Files
-All other files remain untouched: `llm_service.py`, `memory_service.py`, `tts_service.py`, `character_service.py`, `history_service.py`, all frontend code, all other API routes.
+All other files remain untouched: `memory_service.py`, `tts_service.py`, `character_service.py`, `history_service.py`, `database.py`, all frontend code, all other API routes.
 
 ---
 
@@ -50,22 +51,32 @@ All other files remain untouched: `llm_service.py`, `memory_service.py`, `tts_se
 Add to end of `backend/requirements.txt`:
 ```
 tiktoken>=0.5.0
+pytest>=7.0.0
+pytest-asyncio>=0.23.0
 ```
 
-- [ ] **Step 2: Install the dependency**
+- [ ] **Step 2: Install the dependencies**
 
 Run:
 ```powershell
 cd backend
-pip install tiktoken>=0.5.0
+pip install "tiktoken>=0.5.0" "pytest>=7.0.0" "pytest-asyncio>=0.23.0"
 ```
 Expected: Successful installation, no errors.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Create pytest configuration**
+
+Create `backend/pyproject.toml` (or append if exists):
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+```
+
+- [ ] **Step 4: Commit**
 
 ```powershell
-git add requirements.txt
-git commit -m "feat: add tiktoken dependency for token counting"
+git add requirements.txt pyproject.toml
+git commit -m "feat: add tiktoken, pytest, pytest-asyncio dependencies"
 ```
 
 ---
@@ -198,15 +209,21 @@ class ConversationSummaryDB(Base):
     one_line_summary = Column(Text, default="")
 ```
 
-- [ ] **Step 2: Import in database.py so the table is auto-created at startup**
+- [ ] **Step 2: Import in main.py so the table is auto-created at startup**
 
-Add the following import at the end of `backend/app/database.py`, after the `get_db` function:
+In `backend/app/main.py`, add the import inside the `lifespan` function, before `Base.metadata.create_all()`:
 
 ```python
-# Import ORM models so Base.metadata.create_all() picks them up
-import app.models.db  # noqa: F401 - existing models
-import app.models.db_session  # noqa: F401 - session/summary models
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    # Startup: Create DB tables
+    logger.info("Initializing database tables...")
+    import app.models.db_session  # noqa: F401 - ensure summary table is registered
+    Base.metadata.create_all(bind=engine)
 ```
+
+Note: Do NOT modify `database.py` — adding model imports there would create a circular dependency (database.py -> db_session.py -> database.py).
 
 - [ ] **Step 3: Verify table creation**
 
@@ -230,7 +247,7 @@ Expected: `OK - tables: ['conversations', 'conversation_summaries', 'messages']`
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add app/models/db_session.py app/database.py
+git add app/models/db_session.py app/main.py
 git commit -m "feat: add conversation_summaries SQLite table"
 ```
 
@@ -900,7 +917,7 @@ Add the following fields to the `Settings` class in `backend/app/config.py`, aft
 
 ```python
     # Context Builder Configuration (Phase A)
-    context_max_tokens: int = 128000          # Model context window size
+    context_max_tokens: int = 16000           # Model context window size (conservative default for gpt-3.5-turbo; set higher for gpt-4o/gemini)
     context_output_reserved: int = 4000       # Tokens reserved for LLM output
     context_character_prompt_ceiling: int = 2000  # Max tokens for character prompt + state
     context_memory_ceiling: int = 1000        # Max tokens for memory context
@@ -1138,19 +1155,20 @@ class ContextBuilder:
         metadata = ContextMetadata()
 
         # --- 1. Assemble system prompt ---
-        full_system = self._assemble_system_prompt(
+        full_system, summary_tokens_used = self._assemble_system_prompt(
             system_prompt, memory_context, conversation_id
         )
         system_tokens = self.counter.count_text(full_system)
 
         if system_tokens > self.character_prompt_ceiling + self.memory_ceiling + self.summary_ceiling:
-            full_system = self._truncate_system_prompt(
+            full_system, summary_tokens_used = self._truncate_system_prompt(
                 system_prompt, memory_context, conversation_id
             )
             system_tokens = self.counter.count_text(full_system)
 
         budget -= system_tokens
         metadata.character_prompt_tokens = self.counter.count_text(system_prompt)
+        metadata.summary_tokens = summary_tokens_used
         if memory_context:
             metadata.memory_tokens = self.counter.count_text(memory_context)
 
@@ -1209,9 +1227,13 @@ class ContextBuilder:
         base_prompt: str,
         memory_context: Optional[str],
         conversation_id: str,
-    ) -> str:
-        """Combine base prompt, memory, and session summary into a single system prompt."""
+    ) -> tuple[str, int]:
+        """
+        Combine base prompt, memory, and session summary into a single system prompt.
+        Returns (assembled_prompt, summary_tokens_used).
+        """
         parts = []
+        summary_tokens_used = 0
 
         if base_prompt:
             parts.append(base_prompt)
@@ -1222,7 +1244,7 @@ class ContextBuilder:
             summary_tokens = self.counter.count_text(summary_section)
             if summary_tokens <= self.summary_ceiling:
                 parts.append(summary_section)
-                # metadata.summary_tokens updated in build()
+                summary_tokens_used = summary_tokens
 
         if memory_context:
             memory_section = (
@@ -1240,17 +1262,17 @@ class ContextBuilder:
                     "Weave this knowledge naturally into conversation."
                 )
 
-        return "\n".join(parts)
+        return "\n".join(parts), summary_tokens_used
 
     def _truncate_system_prompt(
         self,
         base_prompt: str,
         memory_context: Optional[str],
         conversation_id: str,
-    ) -> str:
+    ) -> tuple[str, int]:
         """Fallback: if combined system prompt is too large, keep only the base prompt."""
         logger.warning("System prompt exceeded ceiling, truncating to base prompt only")
-        return base_prompt
+        return base_prompt, 0
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1614,18 +1636,20 @@ git commit -m "feat: complete Phase A context foundation - token budgeting, sess
 ## Post-Implementation Notes
 
 ### What Changed (Summary)
-- **New dependency:** tiktoken for accurate OpenAI token counting
+- **New dependencies:** tiktoken, pytest, pytest-asyncio
 - **New modules:** token_counter, session_service, summarizer, context_builder, plus data models
 - **Modified chat.py:** Now routes through ContextBuilder before calling LLM. Memory writeback logic preserved as-is.
-- **New LLM method:** `astream_from_messages()` accepts pre-built messages (ContextBuilder output)
+- **Modified llm_service.py:** Added `astream_from_messages()` method. All existing methods unchanged.
+- **Modified main.py:** Import db_session model before table creation.
+- **Modified config.py:** Added `context_*` settings for token budget tuning.
 - **New SQLite table:** `conversation_summaries` for persisting end-of-session summaries
-- **New config fields:** `context_*` settings for token budget tunning
 
 ### What Did NOT Change
 - `llm_service.py` existing methods (`stream_chat`, `chat`) still work for non-chat callers (e.g. memory extraction)
 - `memory_service.py` completely unchanged
 - `tts_service.py` completely unchanged
 - `character_service.py` completely unchanged
+- `database.py` completely unchanged
 - All frontend code unchanged
 - All other API routes unchanged
 

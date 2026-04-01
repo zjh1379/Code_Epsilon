@@ -17,6 +17,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup: Create DB tables
     logger.info("Initializing database tables...")
+    import app.models.db_session  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
     # Startup: Initialize memory service

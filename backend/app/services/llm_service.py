@@ -201,6 +201,31 @@ class LLMService:
         except Exception as e:
             logger.error(f"Error in stream_chat: {str(e)}")
             yield f"抱歉，生成回复时出现错误: {str(e)}"
+
+    async def astream_from_messages(
+        self,
+        messages: List[dict],
+    ) -> AsyncIterator[str]:
+        """
+        Stream chat response from a pre-assembled messages list.
+        Used by ContextBuilder integration.
+        """
+        if not self._initialized:
+            self._initialize_llm()
+
+        try:
+            async for chunk in self.llm.astream(messages):
+                if hasattr(chunk, "content"):
+                    content = chunk.content
+                    if content:
+                        yield content
+                elif isinstance(chunk, str):
+                    yield chunk
+                elif hasattr(chunk, "text"):
+                    yield chunk.text
+        except Exception as e:
+            logger.error(f"Error in astream_from_messages: {str(e)}")
+            yield f"Error generating response: {str(e)}"
     
     async def chat(
         self,

@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     neo4j_database: str = "neo4j"
     memory_threshold_score: int = 6  # Only remember facts with score >= 6
     memory_buffer_size: int = 5      # Process memory every 5 messages
+
+    # Context Builder Configuration (Phase A)
+    context_max_tokens: int = 16000
+    context_output_reserved: int = 4000
+    context_character_prompt_ceiling: int = 2000
+    context_memory_ceiling: int = 1000
+    context_summary_ceiling: int = 500
+    context_rolling_threshold: int = 16
     
     @property
     def neo4j_user(self) -> str:
