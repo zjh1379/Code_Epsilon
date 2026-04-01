@@ -480,6 +480,13 @@ class CharacterStateRecord:
     preferences: dict
     observations: list[str]
 
+class ProcessedResponse:
+    text: str
+    emotion: str
+    topics: list[str]
+    memory_signals: dict | None        # extracted preferences/observations for writeback
+    actions: list[dict] | None         # reserved for Phase D+ (hardware/tool integration)
+
 class ActiveSession:
     conversation_id: str
     user_id: str
@@ -605,6 +612,23 @@ After Phases A-C establish a solid character core:
 - Tool Router (standardized tool calling)
 - Planner (multi-step task decomposition)
 - Permission Gate (safety for external actions)
+
+### Phase D+: Hardware Integration (Future, Not in This Spec)
+
+Target devices: Raspberry Pi, robotic dog, IoT peripherals.
+
+This phase is fully compatible with the current architecture because:
+- Hardware devices are remote clients that communicate via network (REST/WebSocket/MQTT)
+- Input: sensors/mic/camera on device -> API request -> same ContextBuilder pipeline
+- Output: ResponseProcessor already outputs structured signals; `ProcessedResponse.actions` field is reserved for hardware action commands
+
+Modules to add at that time (all purely additive):
+- `ActionProtocol` - standardized action command schema (move/turn/light/speak)
+- `DeviceRegistry` - connected device capabilities and status tracking
+- `ws.py` endpoint - WebSocket for real-time bidirectional hardware communication
+- Hardware-specific `SafetyGate` - physical action permission control (stricter than software tools)
+
+No changes to ContextBuilder, CharacterState, MemoryService, or Summarizer are required.
 
 ---
 
