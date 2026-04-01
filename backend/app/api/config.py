@@ -3,10 +3,15 @@ Configuration API endpoints
 Handles configuration management
 """
 import logging
+import os
 from fastapi import APIRouter, HTTPException
 from app.models.config import ConfigResponse, ConfigUpdateRequest
-from app.services.tts_service import tts_service
 from app.services.llm_service import llm_service
+from app.services.gpt_sovits_paths import (
+    ReferenceAudioPathError,
+    pick_default_reference_audio,
+    resolve_reference_audio_path,
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -15,7 +20,10 @@ router = APIRouter()
 
 # Default configuration constants
 DEFAULT_CONFIG = {
-    "ref_audio_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\output_100isekai\参考音频\vocal_3year.wav.reformatted_vocals.flac_main_vocal.flac_10.flac_0007446080_0007595520.wav",
+    "ref_audio_path": pick_default_reference_audio(
+        settings.gpt_sovits_refs_host_dir,
+        settings.gpt_sovits_default_ref_audio,
+    ),
     "prompt_text": "こちらの楽曲は春巻ごはんさんに作っていただいた楽曲なんですけど",
     "prompt_lang": "ja",
     "text_lang": "zh",
@@ -27,11 +35,10 @@ DEFAULT_CONFIG = {
     "temperature": 1.0,
     "streaming_mode": 2,
     "media_type": "ogg",
-    "gpt_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\GPT_weights_v2Pro\isekai60-e15.ckpt",
-    "sovits_weights_path": r"C:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\isekai60_e8_s248.pth",
     "llm_provider": "openai",
     "llm_model": "gpt-3.5-turbo",
-    "gemini_api_key": ""
+    "gemini_api_key": "",
+    "deepseek_api_key": ""
 }
 
 # In-memory configuration storage (for MVP)
@@ -49,23 +56,28 @@ _config_cache = {
     "temperature": 1.0,
     "streaming_mode": 2,
     "media_type": "ogg",
-    "gpt_weights_path": None,
-    "sovits_weights_path": None,
     "llm_provider": "openai",
     "llm_model": "gpt-3.5-turbo",
-    "gemini_api_key": ""
+    "gemini_api_key": "",
+    "deepseek_api_key": ""
 }
 
 
 def _initialize_config_with_defaults():
     """Initialize config cache with default values if empty"""
     global _config_cache
+    DEFAULT_CONFIG["ref_audio_path"] = pick_default_reference_audio(
+        settings.gpt_sovits_refs_host_dir,
+        settings.gpt_sovits_default_ref_audio,
+    )
     if not _config_cache.get("ref_audio_path"):
         _config_cache.update(DEFAULT_CONFIG)
         
         # Load values from settings (env vars)
         if settings.gemini_api_key:
             _config_cache["gemini_api_key"] = settings.gemini_api_key
+        if settings.deepseek_api_key:
+            _config_cache["deepseek_api_key"] = settings.deepseek_api_key
             
         logger.info("Configuration initialized with default values")
 
@@ -95,11 +107,10 @@ async def get_config():
         temperature=_config_cache.get("temperature", 1.0),
         streaming_mode=_config_cache.get("streaming_mode", 2),
         media_type=_config_cache.get("media_type", "ogg"),
-        gpt_weights_path=_config_cache.get("gpt_weights_path"),
-        sovits_weights_path=_config_cache.get("sovits_weights_path"),
         llm_provider=_config_cache.get("llm_provider", "openai"),
         llm_model=_config_cache.get("llm_model", "gpt-3.5-turbo"),
-        gemini_api_key=_config_cache.get("gemini_api_key", "")
+        gemini_api_key=_config_cache.get("gemini_api_key", ""),
+        deepseek_api_key=_config_cache.get("deepseek_api_key", "")
     )
 
 
@@ -115,7 +126,15 @@ async def update_config(request: ConfigUpdateRequest):
         Updated configuration
     """
     if request.ref_audio_path is not None:
-        _config_cache["ref_audio_path"] = request.ref_audio_path
+        try:
+            host_ref_audio_path, _ = resolve_reference_audio_path(
+                ref_audio_path=request.ref_audio_path,
+                refs_host_dir=settings.gpt_sovits_refs_host_dir,
+                refs_container_dir=settings.gpt_sovits_refs_container_dir,
+            )
+        except ReferenceAudioPathError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        _config_cache["ref_audio_path"] = host_ref_audio_path
     
     if request.prompt_text is not None:
         _config_cache["prompt_text"] = request.prompt_text
@@ -154,36 +173,9 @@ async def update_config(request: ConfigUpdateRequest):
         _config_cache["streaming_mode"] = request.streaming_mode
     
     if request.media_type is not None:
-        if request.media_type not in ["wav", "raw", "ogg", "aac", "fmp4"]:
-            raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac, fmp4")
+        if request.media_type not in ["wav", "raw", "ogg", "aac"]:
+            raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac")
         _config_cache["media_type"] = request.media_type
-    
-    # Update model weights if provided
-    if request.gpt_weights_path is not None and request.gpt_weights_path.strip():
-        # Clean the path
-        cleaned_path = request.gpt_weights_path.strip().strip('"').strip("'")
-        
-        # Only update if changed to avoid unnecessary API calls (and errors if TTS is down)
-        if cleaned_path != _config_cache.get("gpt_weights_path"):
-            success = await tts_service.set_gpt_weights(cleaned_path)
-            if success:
-                _config_cache["gpt_weights_path"] = cleaned_path
-            else:
-                # If we can't connect to TTS service, we should probably still save the path but warn
-                # For now, we'll raise error only if it's a new path that fails
-                raise HTTPException(status_code=400, detail="GPT模型权重设置失败，请检查路径是否正确或确认TTS服务已启动")
-    
-    if request.sovits_weights_path is not None and request.sovits_weights_path.strip():
-        # Clean the path
-        cleaned_path = request.sovits_weights_path.strip().strip('"').strip("'")
-        
-        # Only update if changed
-        if cleaned_path != _config_cache.get("sovits_weights_path"):
-            success = await tts_service.set_sovits_weights(cleaned_path)
-            if success:
-                _config_cache["sovits_weights_path"] = cleaned_path
-            else:
-                raise HTTPException(status_code=400, detail="SoVITS模型权重设置失败，请检查路径是否正确或确认TTS服务已启动")
     
     # Update LLM config
     llm_updated = False
@@ -200,6 +192,12 @@ async def update_config(request: ConfigUpdateRequest):
     if request.gemini_api_key is not None:
         _config_cache["gemini_api_key"] = request.gemini_api_key
         settings.gemini_api_key = request.gemini_api_key
+        llm_updated = True
+    
+    if request.deepseek_api_key is not None:
+        _config_cache["deepseek_api_key"] = request.deepseek_api_key
+        settings.deepseek_api_key = request.deepseek_api_key
+        os.environ["DEEPSEEK_API_KEY"] = request.deepseek_api_key
         llm_updated = True
         
     if llm_updated:
@@ -227,9 +225,8 @@ async def update_config(request: ConfigUpdateRequest):
         temperature=_config_cache["temperature"],
         streaming_mode=_config_cache["streaming_mode"],
         media_type=_config_cache["media_type"],
-        gpt_weights_path=_config_cache["gpt_weights_path"],
-        sovits_weights_path=_config_cache["sovits_weights_path"],
         llm_provider=_config_cache.get("llm_provider", "openai"),
         llm_model=_config_cache.get("llm_model", "gpt-3.5-turbo"),
-        gemini_api_key=_config_cache.get("gemini_api_key", "")
+        gemini_api_key=_config_cache.get("gemini_api_key", ""),
+        deepseek_api_key=_config_cache.get("deepseek_api_key", "")
     )

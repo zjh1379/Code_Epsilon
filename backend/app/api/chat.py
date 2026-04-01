@@ -48,6 +48,29 @@ _response_processor = ResponseProcessor(
 )
 
 
+def _apply_emotion_to_tts(
+    speed_factor: float,
+    fragment_interval: float,
+    emotion: str,
+) -> tuple[float, float]:
+    """Apply lightweight emotion-based modulation to TTS parameters."""
+    speed = speed_factor
+    interval = fragment_interval
+
+    if emotion == "energetic":
+        speed *= 1.08
+        interval *= 0.90
+    elif emotion == "empathetic":
+        speed *= 0.95
+        interval *= 1.10
+    elif emotion == "focused":
+        interval *= 0.95
+
+    speed = max(0.75, min(1.25, speed))
+    interval = max(0.15, min(0.60, interval))
+    return speed, interval
+
+
 async def _cleanup_stale_sessions(db: Session, max_idle_seconds: int = 600) -> None:
     """Generate end-of-session summaries and cleanup stale in-memory sessions."""
     stale_ids = _session_service.get_stale_sessions(max_idle_seconds=max_idle_seconds)
@@ -172,6 +195,21 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
             history_service.add_message(db, conversation_id=conversation_id, role="assistant", content=full_text)
         except Exception as e:
             logger.error(f"Failed to persist assistant message: {str(e)}")
+
+        processed = await _response_processor.process_turn(
+            db=db,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            character_id=character_id,
+            user_message=request.message,
+            assistant_text=full_text,
+            history_messages=[{"role": m.role, "content": m.content} for m in request.history],
+        )
+        tts_speed, tts_interval = _apply_emotion_to_tts(
+            speed_factor=request.config.speed_factor,
+            fragment_interval=request.config.fragment_interval,
+            emotion=processed.emotion,
+        )
         
         # 3) Stream audio via GPT-SoVITS
         try:
@@ -190,8 +228,8 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
                 top_k=request.config.top_k,
                 top_p=request.config.top_p,
                 temperature=request.config.temperature,
-                speed_factor=request.config.speed_factor,
-                fragment_interval=request.config.fragment_interval,
+                speed_factor=tts_speed,
+                fragment_interval=tts_interval,
                 aux_ref_audio_paths=request.config.aux_ref_audio_paths
             ):
                 audio_chunk_base64 = base64.b64encode(audio_chunk).decode("utf-8")
@@ -204,16 +242,6 @@ async def generate_chat_stream(request: ChatRequest, db: Session):
             logger.error(f"TTS streaming error: {str(e)}")
             logger.error(f"TTS config: text_lang={request.config.text_lang}, prompt_lang={request.config.prompt_lang}, ref_audio_path={request.config.ref_audio_path}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'音频生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
-        
-        await _response_processor.process_turn(
-            db=db,
-            conversation_id=conversation_id,
-            user_id=user_id,
-            character_id=character_id,
-            user_message=request.message,
-            assistant_text=full_text,
-            history_messages=[{"role": m.role, "content": m.content} for m in request.history],
-        )
     
     except Exception as e:
         logger.error(f"Chat stream error: {str(e)}")
@@ -243,8 +271,8 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     if request.config.streaming_mode not in [0, 1, 2, 3]:
         raise HTTPException(status_code=400, detail="streaming_mode必须是0/1/2/3")
     
-    if request.config.media_type not in ["wav", "raw", "ogg", "aac", "fmp4"]:
-        raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac, fmp4")
+    if request.config.media_type not in ["wav", "raw", "ogg", "aac"]:
+        raise HTTPException(status_code=400, detail="不支持的media_type，支持: wav, raw, ogg, aac")
     
     return StreamingResponse(
         generate_chat_stream(request, db),
